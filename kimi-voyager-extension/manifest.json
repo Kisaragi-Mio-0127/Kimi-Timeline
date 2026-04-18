@@ -1,0 +1,67 @@
+{
+  "manifest_version": 3,
+  "name": "Kimi Voyager",
+  "version": "2.0.0",
+  "description": "An all-in-one enhancement suite for Kimi AI - folder management, prompt library, chat export and more.",
+  "default_locale": "zh_CN",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "downloads",
+    "clipboardWrite",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "https://kimi.moonshot.cn/*",
+    "https://kimi.moonshot.cn/chat/*",
+    "https://www.kimi.moonshot.cn/*",
+    "https://kimi.com/*",
+    "https://www.kimi.com/*",
+    "https://kimi.com/chat/*",
+    "https://www.kimi.com/chat/*"
+  ],
+  "background": {
+    "service_worker": "src/background/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://kimi.moonshot.cn/*",
+        "https://kimi.moonshot.cn/chat/*",
+        "https://www.kimi.moonshot.cn/*",
+        "https://kimi.com/*",
+        "https://www.kimi.com/*",
+        "https://kimi.com/chat/*",
+        "https://www.kimi.com/chat/*"
+      ],
+      "js": ["src/content/content-v2.js"],
+      "css": ["src/styles/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "src/assets/icon16.png",
+      "32": "src/assets/icon32.png",
+      "48": "src/assets/icon48.png",
+      "128": "src/assets/icon128.png"
+    },
+    "default_title": "Kimi Voyager"
+  },
+  "options_page": "src/options/options.html",
+  "icons": {
+    "16": "src/assets/icon16.png",
+    "32": "src/assets/icon32.png",
+    "48": "src/assets/icon48.png",
+    "128": "src/assets/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["src/assets/*", "src/components/*"],
+      "matches": ["https://kimi.moonshot.cn/*", "https://kimi.com/*"]
+    }
+  ]
+}

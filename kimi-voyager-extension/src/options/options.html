@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kimi Voyager 设置</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <aside class="sidebar">
+      <div class="logo">
+        <img src="../assets/icon48.png" alt="Kimi Voyager">
+        <h1>Kimi Voyager</h1>
+      </div>
+      <nav class="nav">
+        <a href="#general" class="nav-item active">常规设置</a>
+        <a href="#folders" class="nav-item">文件夹管理</a>
+        <a href="#prompts" class="nav-item">提示词库</a>
+        <a href="#export" class="nav-item">导出设置</a>
+        <a href="#about" class="nav-item">关于</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <section id="general" class="section">
+        <h2>常规设置</h2>
+        
+        <div class="setting-group">
+          <h3>功能开关</h3>
+          <label class="switch-label">
+            <input type="checkbox" id="enable-folders" checked>
+            <span class="switch"></span>
+            启用文件夹管理
+          </label>
+          <label class="switch-label">
+            <input type="checkbox" id="enable-timeline" checked>
+            <span class="switch"></span>
+            启用时间轴导航
+          </label>
+          <label class="switch-label">
+            <input type="checkbox" id="enable-prompts" checked>
+            <span class="switch"></span>
+            启用提示词库
+          </label>
+          <label class="switch-label">
+            <input type="checkbox" id="enable-export" checked>
+            <span class="switch"></span>
+            启用聊天导出
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <h3>外观</h3>
+          <div class="form-group">
+            <label>主题</label>
+            <select id="theme">
+              <option value="auto">跟随系统</option>
+              <option value="light">浅色</option>
+              <option value="dark">深色</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>视觉效果</label>
+            <select id="visual-effect">
+              <option value="none">无</option>
+              <option value="snow">雪花</option>
+              <option value="sakura">樱花</option>
+              <option value="rain">雨滴</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section id="folders" class="section" style="display: none;">
+        <h2>文件夹管理</h2>
+        <div class="info-box">
+          <p>文件夹数据会自动同步到您的浏览器账户。</p>
+          <p>您可以在 Kimi 页面中直接拖拽对话到文件夹中。</p>
+        </div>
+        <div class="action-bar">
+          <button id="export-folders" class="btn btn-secondary">导出文件夹</button>
+          <button id="import-folders" class="btn btn-secondary">导入文件夹</button>
+          <input type="file" id="import-folders-input" accept=".json" style="display: none;">
+        </div>
+      </section>
+
+      <section id="prompts" class="section" style="display: none;">
+        <h2>提示词库</h2>
+        <div class="action-bar">
+          <button id="export-prompts" class="btn btn-secondary">导出提示词</button>
+          <button id="import-prompts" class="btn btn-secondary">导入提示词</button>
+          <input type="file" id="import-prompts-input" accept=".json" style="display: none;">
+        </div>
+        <div class="prompt-list" id="prompt-list">
+          <!-- 提示词列表将在这里渲染 -->
+        </div>
+      </section>
+
+      <section id="export" class="section" style="display: none;">
+        <h2>导出设置</h2>
+        <div class="setting-group">
+          <h3>默认导出选项</h3>
+          <label class="switch-label">
+            <input type="checkbox" id="default-include-timestamp" checked>
+            <span class="switch"></span>
+            默认包含时间戳
+          </label>
+          <label class="switch-label">
+            <input type="checkbox" id="default-include-metadata">
+            <span class="switch"></span>
+            默认包含元数据
+          </label>
+        </div>
+      </section>
+
+      <section id="about" class="section" style="display: none;">
+        <h2>关于 Kimi Voyager</h2>
+        <div class="about-content">
+          <img src="../assets/icon128.png" alt="Kimi Voyager" class="about-logo">
+          <h3>Kimi Voyager <span id="version">v1.0.0</span></h3>
+          <p>一个专为 Kimi AI 打造的全能增强浏览器扩展。</p>
+          <p>让 AI 对话体验更加高效、有序。</p>
+          
+          <div class="links">
+            <a href="https://github.com/yourusername/kimi-voyager" target="_blank" class="link">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+              </svg>
+              GitHub
+            </a>
+            <a href="#" class="link">使用文档</a>
+            <a href="#" class="link">反馈问题</a>
+          </div>
+
+          <div class="license">
+            <p>Licensed under GPL-3.0</p>
+            <p>Made with ❤️ for Kimi AI users</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="options.js" type="module"></script>
+</body>
+</html>
