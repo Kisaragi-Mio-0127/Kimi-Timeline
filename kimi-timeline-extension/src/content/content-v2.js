@@ -1996,10 +1996,12 @@
 
     showFolderMenu(event) {
       event.stopPropagation();
-      document.querySelectorAll('.kimi-voyager-folder-menu').forEach(m => m.remove());
+      // 清理所有可能重叠的菜单，避免视觉混淆
+      document.querySelectorAll('.kimi-voyager-folder-menu, .kimi-voyager-context-menu, .kimi-voyager-folder-selector').forEach(m => m.remove());
 
       const menu = createElement('div', {
         className: 'kimi-voyager-folder-menu',
+        attributes: { 'data-menu-type': 'folder-top' },
         styles: {
           position: 'fixed',
           left: `${event.clientX}px`,
@@ -2032,6 +2034,12 @@
         ]
       });
       document.body.appendChild(menu);
+      // 防御性清理：确保菜单中绝对不存在"添加"相关选项
+      menu.querySelectorAll('.menu-item').forEach(item => {
+        if (item.textContent.includes('添加') && !item.textContent.includes('导入')) {
+          item.remove();
+        }
+      });
 
       const closeMenu = (e) => {
         if (!menu.contains(e.target)) {
@@ -3601,7 +3609,7 @@
             if (node.nodeType !== Node.ELEMENT_NODE) continue;
             
             // 跳过 Voyager 自己的元素
-            if (node.closest?.('.kimi-voyager-folders, .kimi-voyager-folder-selector, .kimi-voyager-context-menu')) continue;
+            if (node.closest?.('.kimi-voyager-folders, .kimi-voyager-folder-selector, .kimi-voyager-context-menu, .kimi-voyager-folder-menu')) continue;
             
             // 检查新增节点本身是否是菜单容器
             const role = node.getAttribute('role');
@@ -3614,7 +3622,7 @@
             
             // 检查新增节点内部是否有菜单（通常弹出菜单就是新增节点本身，这里是兜底）
             node.querySelectorAll?.('[role="menu"], [role="listbox"]').forEach(menu => {
-              if (!menu.closest('.kimi-voyager-folders, .kimi-voyager-folder-selector, .kimi-voyager-context-menu')) {
+              if (!menu.closest('.kimi-voyager-folders, .kimi-voyager-folder-selector, .kimi-voyager-context-menu, .kimi-voyager-folder-menu')) {
                 this.injectMenuOption(menu);
               }
             });
@@ -3627,6 +3635,7 @@
 
     injectMenuOption(menuEl) {
       if (!this.lastRightClickedConv) return;
+      if (menuEl.closest?.('.kimi-voyager-folder-menu')) return;
       if (menuEl.querySelector('.voyager-menu-add-to-folder')) return;
 
       const menuList = menuEl.querySelector('ul, ol, [class*="list"], [role="menu"]') || menuEl;
