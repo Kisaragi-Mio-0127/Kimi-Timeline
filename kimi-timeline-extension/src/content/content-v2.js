@@ -1,6 +1,6 @@
 /**
  * Kimi-Timeline - Content Script
- * 版本: 1.1.0
+ * 版本: 1.3.0
  */
 
 (function() {
@@ -42,6 +42,16 @@
   }
   
   function applyKimiTheme() {
+    // 如果用户手动设置了固定主题，尊重用户设置
+    const userTheme = window.__kimiTimelineThemeSetting;
+    if (userTheme === 'light' || userTheme === 'dark') {
+      const current = document.documentElement.dataset.kvTheme;
+      if (current !== userTheme) {
+        document.documentElement.dataset.kvTheme = userTheme;
+        console.log('[Kimi Voyager] Theme set by user:', userTheme);
+      }
+      return;
+    }
     const theme = detectKimiTheme();
     const current = document.documentElement.dataset.kvTheme;
     if (current !== theme) {
@@ -417,11 +427,16 @@
       }
     }
 
+    getTheme() {
+      return document.documentElement.dataset.kvTheme || 'dark';
+    }
+
     animate() {
       if (!this.ctx || !this.canvas) return;
       const ctx = this.ctx;
       const w = this.canvas.width;
       const h = this.canvas.height;
+      const isLight = this.getTheme() === 'light';
       
       ctx.clearRect(0, 0, w, h);
       
@@ -433,7 +448,8 @@
           case 'snow':
             ctx.beginPath();
             ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-            ctx.fillStyle = '#ffffff';
+            // 浅色模式使用灰蓝色，深色模式使用白色
+            ctx.fillStyle = isLight ? 'rgba(100, 140, 200, 0.9)' : '#ffffff';
             ctx.fill();
             p.y += p.speedY;
             p.x += p.speedX;
@@ -456,14 +472,19 @@
             ctx.beginPath();
             ctx.moveTo(p.x, p.y);
             ctx.lineTo(p.x + p.speedX * 2, p.y + p.length);
-            ctx.strokeStyle = `rgba(160, 192, 240, ${p.opacity})`;
+            // 浅色模式使用更深的蓝色，深色模式使用浅蓝色
+            ctx.strokeStyle = isLight
+              ? `rgba(80, 120, 180, ${p.opacity + 0.2})`
+              : `rgba(160, 192, 240, ${p.opacity})`;
             ctx.lineWidth = 1.5;
             ctx.lineCap = 'round';
             ctx.stroke();
             // 雨滴头部（小圆点）
             ctx.beginPath();
             ctx.arc(p.x, p.y, 1, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(200, 220, 255, ${p.opacity + 0.1})`;
+            ctx.fillStyle = isLight
+              ? `rgba(100, 140, 200, ${p.opacity + 0.2})`
+              : `rgba(200, 220, 255, ${p.opacity + 0.1})`;
             ctx.fill();
             p.y += p.speedY;
             p.x += p.speedX * 0.5;
@@ -1347,7 +1368,8 @@
             top: 0;
             bottom: 0;
             width: 2px;
-            background: var(--kimi-voyager-bg-tertiary, rgba(255, 255, 255, 0.15));
+            background: var(--kimi-voyager-text-muted, #9ca3af);
+            opacity: 0.35;
             transform: translateX(-50%);
           }
 
@@ -1370,14 +1392,16 @@
             width: 10px;
             height: 10px;
             border-radius: 50%;
-            background: rgba(255, 255, 255, 0.3);
+            background: var(--kimi-voyager-text-muted, #9ca3af);
+            opacity: 0.6;
             cursor: pointer;
             transition: all 0.2s ease;
             position: relative;
           }
 
           .kimi-voyager-timeline-node:hover {
-            background: rgba(255, 255, 255, 0.7);
+            background: var(--kimi-voyager-text, #d1d5db);
+            opacity: 0.9;
             transform: scale(1.3);
           }
 
@@ -1385,11 +1409,13 @@
             background: #4f46e5;
             box-shadow: 0 0 8px rgba(79, 70, 229, 0.6);
             transform: scale(1.2);
+            opacity: 1;
           }
 
           .kimi-voyager-timeline-node.starred {
             background: #fbbf24;
             box-shadow: 0 0 6px rgba(251, 191, 36, 0.6);
+            opacity: 1;
           }
 
           .kimi-voyager-timeline-node.starred.active {
@@ -3658,6 +3684,13 @@
         this.mouseDrag = null;
       }
       
+      // 根据当前主题选择拖拽幽灵样式
+      const isLight = document.documentElement.dataset.kvTheme === 'light';
+      const ghostBg = isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(31, 41, 55, 0.95)';
+      const ghostBorder = isLight ? '1px solid rgba(79, 70, 229, 0.4)' : '1px solid rgba(79, 70, 229, 0.5)';
+      const ghostColor = isLight ? '#111827' : '#e5e7eb';
+      const ghostShadow = isLight ? '0 8px 32px rgba(0,0,0,0.15)' : '0 8px 32px rgba(0,0,0,0.4)';
+
       // Create ghost element
       const ghost = createElement('div', {
         className: 'voyager-drag-ghost',
@@ -3669,18 +3702,18 @@
           pointerEvents: 'none',
           opacity: '0.9',
           transform: 'translate(-50%, -50%) scale(1.05)',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.4)'
+          boxShadow: ghostShadow
         },
         children: [
           createElement('div', {
             className: 'voyager-drag-ghost-inner',
             styles: {
-              background: 'rgba(31, 41, 55, 0.95)',
-              border: '1px solid rgba(79, 70, 229, 0.5)',
+              background: ghostBg,
+              border: ghostBorder,
               borderRadius: '8px',
               padding: '8px 14px',
               fontSize: '13px',
-              color: 'var(--kimi-voyager-text, #e5e7eb)',
+              color: ghostColor,
               whiteSpace: 'nowrap',
               display: 'flex',
               alignItems: 'center',
@@ -4666,6 +4699,23 @@
       this.initialized = false;
       this.features = {};
       this.visualEffects = new VisualEffects();
+      this.settings = {};
+    }
+
+    async loadSettings() {
+      try {
+        if (!chrome.runtime?.id) return;
+        const result = await chrome.storage.local.get('settings');
+        this.settings = result.settings || {};
+        // Apply theme setting
+        const theme = this.settings.theme || 'auto';
+        window.__kimiTimelineThemeSetting = theme;
+        applyKimiTheme();
+        console.log('📋 Settings loaded:', this.settings);
+      } catch (error) {
+        console.warn('⚠️ Failed to load settings:', error);
+        this.settings = {};
+      }
     }
 
     async init() {
@@ -4673,62 +4723,83 @@
       this._initInProgress = true;
       
       try {
-        console.log('🚀 Kimi-Timeline v1.1.0 initializing...');
+        console.log('🚀 Kimi-Timeline v1.3.0 initializing...');
         const url = window.location.href;
         const isChatPage = url.includes('/chat');
         const currentPath = location.pathname;
         
         console.log('📍 URL:', url, 'isChatPage:', isChatPage);
 
-      // 所有 Kimi 页面都初始化 FolderManager（只要侧边栏存在或可能出现）
-      if (!this.features.folderManager) {
-        this.features.folderManager = new FolderManager();
-        await this.features.folderManager.init();
-      } else if (!this.features.folderManager.container || !this.features.folderManager.container.isConnected) {
-        this.features.folderManager.createUI();
-      }
+        // Load settings before initializing features
+        await this.loadSettings();
 
-      if (isChatPage) {
-        if (!this.chatInitialized) {
-          this.features.timeline = new Timeline();
-          this.features.timeline.init();
+        // 所有 Kimi 页面都初始化 FolderManager（只要启用且侧边栏存在或可能出现）
+        const enableFolders = this.settings.enableFolderManagement !== false;
+        if (enableFolders) {
+          if (!this.features.folderManager) {
+            this.features.folderManager = new FolderManager();
+            await this.features.folderManager.init();
+          } else if (!this.features.folderManager.container || !this.features.folderManager.container.isConnected) {
+            this.features.folderManager.createUI();
+          }
+        } else if (this.features.folderManager) {
+          this.features.folderManager.destroy();
+          this.features.folderManager = null;
+        }
 
-          this.features.exportManager = new ExportManager();
-          this.features.exportManager.init();
-
-          // 默认无视觉效果
-          this.visualEffects.init('none');
-          
-          this.chatInitialized = true;
-          this.lastChatPath = currentPath;
-          console.log('✅ Kimi-Timeline chat features initialized');
-        } else if (this.lastChatPath !== currentPath) {
-          // SPA navigation within chat pages (different conversation)
-          this.lastChatPath = currentPath;
-          if (this.features.folderManager) {
-            this.features.folderManager.updateActiveHighlights();
-            if (!this.features.folderManager.container || !this.features.folderManager.container.isConnected) {
-              this.features.folderManager.createUI();
-              this.features.folderManager.renderFolders();
+        if (isChatPage) {
+          if (!this.chatInitialized) {
+            const enableTimeline = this.settings.enableTimeline !== false;
+            if (enableTimeline) {
+              this.features.timeline = new Timeline();
+              this.features.timeline.init();
             }
+
+            const enableExport = this.settings.enableExport !== false;
+            if (enableExport) {
+              this.features.exportManager = new ExportManager();
+              this.features.exportManager.init();
+            }
+
+            // 视觉效果
+            const visualEffect = this.settings.visualEffect || 'none';
+            if (visualEffect !== 'none') {
+              this.visualEffects.init(visualEffect);
+            } else {
+              this.visualEffects.destroy();
+            }
+            
+            this.chatInitialized = true;
+            this.lastChatPath = currentPath;
+            console.log('✅ Kimi-Timeline chat features initialized');
+          } else if (this.lastChatPath !== currentPath) {
+            // SPA navigation within chat pages (different conversation)
+            this.lastChatPath = currentPath;
+            if (this.features.folderManager) {
+              this.features.folderManager.updateActiveHighlights();
+              if (!this.features.folderManager.container || !this.features.folderManager.container.isConnected) {
+                this.features.folderManager.createUI();
+                this.features.folderManager.renderFolders();
+              }
+            }
+            console.log('🔄 Kimi-Timeline updated for new conversation');
           }
-          console.log('🔄 Kimi-Timeline updated for new conversation');
+        } else {
+          // 非对话页：只清理 timeline/exportManager/visualEffects，保留 FolderManager
+          if (this.chatInitialized) {
+            if (this.features.timeline) {
+              this.features.timeline.destroy?.();
+              this.features.timeline = null;
+            }
+            if (this.features.exportManager) {
+              this.features.exportManager.destroy();
+              this.features.exportManager = null;
+            }
+            this.visualEffects.destroy();
+            this.chatInitialized = false;
+            this.lastChatPath = null;
+          }
         }
-      } else {
-        // 非对话页：只清理 timeline/exportManager，保留 FolderManager
-        if (this.chatInitialized) {
-          if (this.features.timeline) {
-            this.features.timeline.destroy?.();
-            this.features.timeline = null;
-          }
-          if (this.features.exportManager) {
-            this.features.exportManager.destroy();
-            this.features.exportManager = null;
-          }
-          this.chatInitialized = false;
-          this.lastChatPath = null;
-        }
-      }
 
         this.initialized = true;
         console.log('✅ Kimi-Timeline initialized');
@@ -4744,6 +4815,94 @@
       globalState.visualEffect = type;
       this.visualEffects.setType(type);
       showToast(`视觉效果: ${type === 'none' ? '无' : type === 'snow' ? '雪花' : type === 'sakura' ? '樱花' : '雨滴'}`, 'success');
+    }
+
+    async toggleFeature(feature, enabled) {
+      console.log(`🔧 Toggle feature: ${feature} = ${enabled}`);
+      // Update local settings cache
+      const settingKey = `enable${feature.charAt(0).toUpperCase() + feature.slice(1)}`;
+      this.settings[settingKey] = enabled;
+
+      const url = window.location.href;
+      const isChatPage = url.includes('/chat');
+
+      switch (feature) {
+        case 'folderManagement':
+          if (enabled) {
+            if (!this.features.folderManager) {
+              this.features.folderManager = new FolderManager();
+              await this.features.folderManager.init();
+            } else if (!this.features.folderManager.container || !this.features.folderManager.container.isConnected) {
+              this.features.folderManager.createUI();
+            }
+          } else {
+            if (this.features.folderManager) {
+              this.features.folderManager.destroy();
+              this.features.folderManager = null;
+            }
+          }
+          break;
+        case 'timeline':
+          if (isChatPage) {
+            if (enabled) {
+              if (!this.features.timeline) {
+                this.features.timeline = new Timeline();
+                this.features.timeline.init();
+              }
+            } else {
+              if (this.features.timeline) {
+                this.features.timeline.destroy?.();
+                this.features.timeline = null;
+              }
+            }
+          }
+          break;
+        case 'export':
+          if (isChatPage) {
+            if (enabled) {
+              if (!this.features.exportManager) {
+                this.features.exportManager = new ExportManager();
+                this.features.exportManager.init();
+              }
+            } else {
+              if (this.features.exportManager) {
+                this.features.exportManager.destroy();
+                this.features.exportManager = null;
+              }
+            }
+          }
+          break;
+      }
+    }
+
+    async applySettingsChanges(newSettings) {
+      const oldSettings = { ...this.settings };
+      this.settings = { ...this.settings, ...newSettings };
+
+      // Apply theme change
+      if (newSettings.theme !== undefined && newSettings.theme !== oldSettings.theme) {
+        window.__kimiTimelineThemeSetting = newSettings.theme || 'auto';
+        applyKimiTheme();
+      }
+
+      // Apply visual effect change
+      if (newSettings.visualEffect !== undefined && newSettings.visualEffect !== oldSettings.visualEffect) {
+        this.setVisualEffect(newSettings.visualEffect || 'none');
+      }
+
+      // Apply feature toggles
+      const url = window.location.href;
+      const isChatPage = url.includes('/chat');
+
+      if (newSettings.enableFolderManagement !== undefined && newSettings.enableFolderManagement !== oldSettings.enableFolderManagement) {
+        await this.toggleFeature('folderManagement', newSettings.enableFolderManagement);
+      }
+      if (newSettings.enableTimeline !== undefined && newSettings.enableTimeline !== oldSettings.enableTimeline) {
+        await this.toggleFeature('timeline', newSettings.enableTimeline);
+      }
+      if (newSettings.enableExport !== undefined && newSettings.enableExport !== oldSettings.enableExport) {
+        await this.toggleFeature('export', newSettings.enableExport);
+      }
     }
   }
 
@@ -4836,7 +4995,28 @@
         break;
       case 'toggleFeature':
         // Handle feature toggle
-        sendResponse({ success: true });
+        if (voyager) {
+          voyager.toggleFeature(request.feature, request.enabled).then(() => {
+            sendResponse({ success: true });
+          }).catch(err => {
+            console.error('Toggle feature error:', err);
+            sendResponse({ success: false, error: err.message });
+          });
+          return true; // Keep channel open for async
+        }
+        sendResponse({ success: false, error: 'Voyager not initialized' });
+        break;
+      case 'settingsChanged':
+        if (voyager) {
+          voyager.applySettingsChanges(request.settings).then(() => {
+            sendResponse({ success: true });
+          }).catch(err => {
+            console.error('Apply settings error:', err);
+            sendResponse({ success: false, error: err.message });
+          });
+          return true; // Keep channel open for async
+        }
+        sendResponse({ success: false, error: 'Voyager not initialized' });
         break;
       case 'getDomHtml':
         // 返回当前页面的完整 DOM HTML（用于从历史页面提取数据）

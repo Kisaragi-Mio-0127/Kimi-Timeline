@@ -46,6 +46,9 @@ function applySettings(settings) {
   setValue('visual-effect', settings.visualEffect || 'none');
   setChecked('default-include-timestamp', settings.defaultIncludeTimestamp !== false);
   setChecked('default-include-metadata', settings.defaultIncludeMetadata === true);
+
+  // 应用主题到设置页面
+  applyTheme(settings.theme || 'auto');
 }
 
 // 保存设置
@@ -63,10 +66,44 @@ async function saveSettings() {
 
   try {
     await chrome.runtime.sendMessage({ action: 'saveSettings', data: settings });
+    applyTheme(settings.theme);
+    // 通知所有 Kimi 标签页设置已变更
+    await notifyContentScripts(settings);
     showNotification('设置已保存');
   } catch (error) {
     console.error('Failed to save settings:', error);
     showNotification('保存失败', 'error');
+  }
+}
+
+// 通知内容脚本设置变更
+async function notifyContentScripts(settings) {
+  try {
+    const tabs1 = await chrome.tabs.query({ url: 'https://kimi.moonshot.cn/*' });
+    const tabs2 = await chrome.tabs.query({ url: 'https://kimi.com/*' });
+    const tabs3 = await chrome.tabs.query({ url: 'https://www.kimi.com/*' });
+    const tabs = [...tabs1, ...tabs2, ...tabs3];
+    for (const tab of tabs) {
+      try {
+        await chrome.tabs.sendMessage(tab.id, { action: 'settingsChanged', settings });
+      } catch (e) {
+        // 忽略未响应的标签页
+      }
+    }
+  } catch (error) {
+    console.error('Notify content scripts error:', error);
+  }
+}
+
+// 应用主题到设置页面
+function applyTheme(theme) {
+  const root = document.documentElement;
+  if (theme === 'dark') {
+    root.dataset.theme = 'dark';
+  } else if (theme === 'light') {
+    root.dataset.theme = 'light';
+  } else {
+    delete root.dataset.theme;
   }
 }
 
