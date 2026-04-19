@@ -3243,8 +3243,32 @@
       event.preventDefault();
       document.querySelectorAll('.kimi-voyager-context-menu').forEach(m => m.remove());
 
-      // 构建文件夹子菜单
+      // 构建文件夹子菜单（递归包含子文件夹）
       const folderSubmenu = createElement('div', { className: 'submenu-folder-list' });
+      
+      const renderSubmenuFolder = (folder, depth = 0) => {
+        const item = createElement('div', {
+          className: 'submenu-folder-item',
+          styles: { paddingLeft: `${8 + depth * 14}px` },
+          events: {
+            click: () => {
+              if (globalState.moveConversationToFolder(conv.id, conv.title, folder.id)) {
+                showToast(`已移动到 "${folder.name}"`, 'success');
+                this.renderFolders();
+              } else {
+                showToast('该对话已在文件夹中', 'info');
+              }
+              menu.remove();
+            }
+          }
+        });
+        item.appendChild(createElement('span', { text: `${depth > 0 ? '└ ' : ''}📁 ${folder.name}` }));
+        folderSubmenu.appendChild(item);
+        
+        if (folder.children?.length > 0) {
+          folder.children.forEach(child => renderSubmenuFolder(child, depth + 1));
+        }
+      };
       
       if (globalState.folders.length === 0) {
         folderSubmenu.appendChild(createElement('div', {
@@ -3252,23 +3276,7 @@
           text: '暂无文件夹'
         }));
       } else {
-        globalState.folders.forEach(folder => {
-          folderSubmenu.appendChild(createElement('div', {
-            className: 'submenu-folder-item',
-            text: `📁 ${folder.name}`,
-            events: {
-              click: () => {
-                if (globalState.moveConversationToFolder(conv.id, conv.title, folder.id)) {
-                  showToast(`已移动到 "${folder.name}"`, 'success');
-                  this.renderFolders();
-                } else {
-                  showToast('该对话已在文件夹中', 'info');
-                }
-                menu.remove();
-              }
-            }
-          }));
-        });
+        globalState.folders.forEach(folder => renderSubmenuFolder(folder));
       }
 
       const menu = createElement('div', {
