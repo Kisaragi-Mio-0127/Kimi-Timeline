@@ -1,11 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <defs>
-    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#4f46e5;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#7c3aed;stop-opacity:1" />
-    </linearGradient>
-  </defs>
-  <rect width="128" height="128" rx="24" fill="url(#grad)"/>
-  <text x="64" y="84" font-size="72" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-weight="bold">K</text>
-  <circle cx="100" cy="28" r="12" fill="#10b981"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Deep dark navy rounded square background -->
+  <rect x="0" y="0" width="128" height="128" rx="28" fill="#0c162d"/>
+
+  <!-- Chat bubble body (bright blue) -->
+  <rect x="19" y="19" width="90" height="74" rx="15" fill="#3b82f6"/>
+
+  <!-- Bubble tail (triangle pointing down) -->
+  <polygon points="54,93 74,93 64,103" fill="#3b82f6"/>
+
+  <!-- Message lines inside bubble -->
+  <rect x="34" y="42" width="60" height="6" rx="3" fill="white"/>
+  <rect x="34" y="55" width="42" height="6" rx="3" fill="#bfdbfe"/>
+
+  <!-- Timeline track (dark navy line) -->
+  <rect x="20" y="100" width="88" height="5" rx="2.5" fill="#1e3a5f"/>
+
+  <!-- Left timeline node (darker blue) -->
+  <circle cx="24" cy="102.5" r="6" fill="#2563eb"/>
+
+  <!-- Center timeline node (highlighted with glow + white) -->
+  <circle cx="64" cy="102.5" r="8" fill="#60a5fa"/>
+  <circle cx="64" cy="102.5" r="7" fill="white"/>
+
+  <!-- Right timeline node (darker blue) -->
+  <circle cx="104" cy="102.5" r="6" fill="#2563eb"/>
 </svg>

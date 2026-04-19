@@ -38,7 +38,7 @@
 2. 打开 Chrome/Edge，进入 `chrome://extensions/`
 3. 开启右上角「开发者模式」
 4. 点击「加载已解压的扩展程序」
-5. 选择 `kimi-voyager-extension` 文件夹
+5. 选择 `kimi-timeline-extension` 文件夹
 
 ---
 
@@ -49,7 +49,7 @@
 2. 在左侧侧边栏「📁 我的文件夹」区域点击 `⋮` 菜单可导入/导出文件夹
 3. 点击 `+` 按钮创建新文件夹
 4. **拖拽收藏**：在侧边栏对话条目上长按鼠标，即可拖拽到目标文件夹
-5. **右键操作**：右键文件夹可重命名、改颜色、添加子文件夹或删除；右键对话可移除或打开
+5. **右键操作**：右键文件夹可重命名、改颜色、新建子文件夹或删除；右键对话可移除或打开
 
 ### 时间轴导航
 - 进入任意对话后，右侧会出现时间轴面板
@@ -71,7 +71,7 @@
 ### 项目结构
 
 ```
-kimi-voyager-extension/
+kimi-timeline-extension/
 ├── manifest.json              # Chrome Extension Manifest V3
 ├── src/
 │   └── content/

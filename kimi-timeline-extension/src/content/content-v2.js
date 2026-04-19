@@ -1588,6 +1588,7 @@
       this.lastProcessedInterceptedIndex = 0;
       this.autoLoadAttempts = 0;
       this._foldersRendered = false;
+      this._renderingFolders = false;
     }
 
     async init() {
@@ -1799,16 +1800,20 @@
     }
 
     async renderFolders() {
-      if (!this.container) return;
-      const list = this.container.querySelector('.kimi-voyager-folders-list');
-      if (!list) return;
-      list.innerHTML = '';
+      if (this._renderingFolders) return;
+      this._renderingFolders = true;
+      try {
+        if (!this.container) return;
+        const list = this.container.querySelector('.kimi-voyager-folders-list');
+        if (!list) return;
+        list.innerHTML = '';
 
       // 防御性：首次渲染且文件夹为空时，尝试重新加载一次
       if (globalState.folders.length === 0 && !this._foldersRendered) {
         this._foldersRendered = true;
         await globalState.loadFolders();
         if (globalState.folders.length > 0) {
+          this._renderingFolders = false;
           return this.renderFolders();
         }
       }
@@ -1947,6 +1952,9 @@
       globalState.folders.forEach(folder => {
         list.appendChild(renderFolder(folder));
       });
+      } finally {
+        this._renderingFolders = false;
+      }
     }
 
     updateActiveHighlights() {
@@ -4364,7 +4372,6 @@
         await this.features.folderManager.init();
       } else if (!this.features.folderManager.container || !this.features.folderManager.container.isConnected) {
         this.features.folderManager.createUI();
-        this.features.folderManager.renderFolders();
       }
 
       if (isChatPage) {
