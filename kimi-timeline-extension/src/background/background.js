@@ -1,5 +1,5 @@
 /**
- * Kimi Voyager - Background Service Worker
+ * Kimi-Timeline - Background Service Worker
  * 处理扩展的后台任务、消息传递、存储管理
  */
 
@@ -12,7 +12,7 @@ const messageHandler = new MessageHandler();
 
 // 扩展安装时的初始化
 chrome.runtime.onInstalled.addListener((details) => {
-  console.log('Kimi Voyager installed:', details.reason);
+  console.log('Kimi-Timeline installed:', details.reason);
   
   if (details.reason === 'install') {
     // 首次安装，初始化默认设置
@@ -23,7 +23,7 @@ chrome.runtime.onInstalled.addListener((details) => {
     });
   } else if (details.reason === 'update') {
     // 更新时的处理
-    console.log('Kimi Voyager updated to version', chrome.runtime.getManifest().version);
+    console.log('Kimi-Timeline updated to version', chrome.runtime.getManifest().version);
   }
   
   // 创建右键菜单
@@ -60,13 +60,6 @@ function createContextMenus() {
   ];
   
   chrome.contextMenus.create({
-    id: 'saveToPromptLibrary',
-    title: '保存到提示词库',
-    contexts: ['selection'],
-    documentUrlPatterns: urlPatterns
-  });
-  
-  chrome.contextMenus.create({
     id: 'exportConversation',
     title: '导出当前对话',
     contexts: ['page'],
@@ -77,29 +70,11 @@ function createContextMenus() {
 // 处理右键菜单点击
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   switch (info.menuItemId) {
-    case 'saveToPromptLibrary':
-      if (info.selectionText) {
-        savePrompt(info.selectionText);
-      }
-      break;
     case 'exportConversation':
       chrome.tabs.sendMessage(tab.id, { action: 'exportConversation' });
       break;
   }
 });
-
-// 保存提示词
-async function savePrompt(text) {
-  const prompts = await storageManager.get('prompts') || [];
-  prompts.push({
-    id: Date.now().toString(),
-    title: text.slice(0, 30) + (text.length > 30 ? '...' : ''),
-    content: text,
-    createdAt: Date.now(),
-    tags: []
-  });
-  await storageManager.set({ prompts });
-}
 
 // 处理来自内容脚本和弹出窗口的消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -195,19 +170,19 @@ function handleExport(format, data, sendResponse) {
   switch (format) {
     case 'json':
       blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      filename = `kimi-voyager-export-${timestamp}.json`;
+      filename = `kimi-timeline-export-${timestamp}.json`;
       break;
       
     case 'markdown':
       const markdown = convertToMarkdown(data);
       blob = new Blob([markdown], { type: 'text/markdown' });
-      filename = `kimi-voyager-export-${timestamp}.md`;
+      filename = `kimi-timeline-export-${timestamp}.md`;
       break;
       
     case 'html':
       const html = convertToHTML(data);
       blob = new Blob([html], { type: 'text/html' });
-      filename = `kimi-voyager-export-${timestamp}.html`;
+      filename = `kimi-timeline-export-${timestamp}.html`;
       break;
       
     default:
@@ -232,7 +207,7 @@ function handleExport(format, data, sendResponse) {
 
 // 转换为 Markdown 格式
 function convertToMarkdown(data) {
-  let md = `# Kimi Voyager 导出\n\n`;
+  let md = `# Kimi-Timeline 导出\n\n`;
   md += `导出时间: ${new Date().toLocaleString()}\n\n`;
   md += `---\n\n`;
   
@@ -257,7 +232,7 @@ function convertToHTML(data) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kimi Voyager 导出</title>
+  <title>Kimi-Timeline 导出</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
     .header { border-bottom: 2px solid #e0e0e0; padding-bottom: 20px; margin-bottom: 20px; }
@@ -272,7 +247,7 @@ function convertToHTML(data) {
 </head>
 <body>
   <div class="header">
-    <h1>Kimi Voyager 导出</h1>
+    <h1>Kimi-Timeline 导出</h1>
     <p>导出时间: ${new Date().toLocaleString()}</p>
   </div>
   ${data.conversations ? data.conversations.map((conv, index) => `
@@ -301,4 +276,4 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }
 });
 
-console.log('Kimi Voyager background script loaded');
+console.log('Kimi-Timeline background script loaded');

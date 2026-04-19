@@ -1,5 +1,5 @@
 /**
- * Kimi Voyager - Popup Script
+ * Kimi-Timeline - Popup Script
  * 处理弹出窗口的交互逻辑
  */
 
@@ -70,7 +70,7 @@ function setupEventListeners() {
   });
   
   document.getElementById('btn-help').addEventListener('click', () => {
-    chrome.tabs.create({ url: 'https://github.com/yourusername/kimi-voyager#readme' });
+    chrome.tabs.create({ url: 'https://github.com/Kisaragi-Mio-0127/Kimi-Timeline/#readme' });
     window.close();
   });
 }

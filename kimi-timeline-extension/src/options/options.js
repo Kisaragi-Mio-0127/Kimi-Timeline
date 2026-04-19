@@ -1,5 +1,5 @@
 /**
- * Kimi Voyager - Options Page
+ * Kimi-Timeline - Options Page
  * 设置页面的交互逻辑
  */
 
@@ -124,7 +124,7 @@ async function exportFolders() {
     
     const a = document.createElement('a');
     a.href = url;
-    a.download = `kimi-voyager-folders-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `kimi-timeline-folders-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     
     URL.revokeObjectURL(url);
@@ -165,7 +165,7 @@ async function exportPrompts() {
     
     const a = document.createElement('a');
     a.href = url;
-    a.download = `kimi-voyager-prompts-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `kimi-timeline-prompts-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     
     URL.revokeObjectURL(url);

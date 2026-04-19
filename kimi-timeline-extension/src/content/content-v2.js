@@ -1,6 +1,6 @@
 /**
- * Kimi Voyager - Content Script
- * 版本: 1.0.0-Modified
+ * Kimi-Timeline - Content Script
+ * 版本: 1.1.0
  */
 
 (function() {
@@ -456,6 +456,8 @@
       this.scrollContainer = null;
       this.scrollHandler = null;
       this.ACTIVATE_AHEAD = 120; // 提前激活距离（像素）
+      this._isNavigating = false;
+      this._navigateTimer = null;
     }
 
     init() {
@@ -984,6 +986,7 @@
 
     updateCurrentIndex() {
       if (this.messages.length === 0) return;
+      if (this._isNavigating) return; // 导航滚动期间不更新高亮
       
       const container = this.findScrollContainer();
       if (!container) return;
@@ -1038,7 +1041,13 @@
       if (index >= 0 && index < this.messages.length) {
         const msg = this.messages[index];
         if (msg.element) {
+          this._isNavigating = true;
+          clearTimeout(this._navigateTimer);
           msg.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // 平滑滚动期间忽略 scroll 事件导致的索引更新，避免高亮跳回上一个
+          this._navigateTimer = setTimeout(() => {
+            this._isNavigating = false;
+          }, 600);
         }
         this.currentIndex = index;
         this.highlightCurrent();
@@ -1395,6 +1404,10 @@
     }
 
     destroy() {
+      if (this._navigateTimer) {
+        clearTimeout(this._navigateTimer);
+        this._navigateTimer = null;
+      }
       if (this.updateInterval) {
         clearInterval(this.updateInterval);
         this.updateInterval = null;
@@ -1453,12 +1466,12 @@
           if (chatArea) header = chatArea.parentElement;
         }
         
-        if (header === lastHeader && header?.querySelector('.kimi-voyager-export-btn')) return;
+        if (header === lastHeader && header?.querySelector('.kimi-timeline-export-btn')) return;
         lastHeader = header;
         
-        if (header && !header.querySelector('.kimi-voyager-export-btn')) {
+        if (header && !header.querySelector('.kimi-timeline-export-btn')) {
           const button = createElement('button', {
-            className: 'kimi-voyager-export-btn',
+            className: 'kimi-timeline-export-btn',
             title: '导出对话',
             events: { click: () => this.exportConversation() },
             children: [
@@ -1524,7 +1537,7 @@
     injectStyles() {
       const style = createElement('style', {
         text: `
-          .kimi-voyager-export-btn {
+          .kimi-timeline-export-btn {
             display: inline-flex;
             align-items: center;
             gap: 6px;
@@ -1538,7 +1551,7 @@
             font-size: 14px;
             transition: all 0.2s;
           }
-          .kimi-voyager-export-btn:hover {
+          .kimi-timeline-export-btn:hover {
             background: rgba(255, 255, 255, 0.2);
           }
         `
@@ -2126,7 +2139,7 @@
           }),
           createElement('div', {
             className: 'menu-item',
-            text: '📂 添加子文件夹',
+            text: '📂 新建子文件夹',
             events: {
               click: (e) => {
                 e.stopPropagation();
@@ -4338,7 +4351,7 @@
       this._initInProgress = true;
       
       try {
-        console.log('🚀 Kimi Voyager v1.0.0-Modified initializing...');
+        console.log('🚀 Kimi-Timeline v1.1.0 initializing...');
         const url = window.location.href;
         const isChatPage = url.includes('/chat');
         const currentPath = location.pathname;
@@ -4367,7 +4380,7 @@
           
           this.chatInitialized = true;
           this.lastChatPath = currentPath;
-          console.log('✅ Kimi Voyager chat features initialized');
+          console.log('✅ Kimi-Timeline chat features initialized');
         } else if (this.lastChatPath !== currentPath) {
           // SPA navigation within chat pages (different conversation)
           this.lastChatPath = currentPath;
@@ -4378,7 +4391,7 @@
               this.features.folderManager.renderFolders();
             }
           }
-          console.log('🔄 Kimi Voyager updated for new conversation');
+          console.log('🔄 Kimi-Timeline updated for new conversation');
         }
       } else {
         // 非对话页：只清理 timeline/exportManager，保留 FolderManager
@@ -4397,9 +4410,9 @@
       }
 
         this.initialized = true;
-        console.log('✅ Kimi Voyager initialized');
+        console.log('✅ Kimi-Timeline initialized');
       } catch (error) {
-        console.error('❌ Kimi Voyager initialization error:', error);
+        console.error('❌ Kimi-Timeline initialization error:', error);
       } finally {
         this._initInProgress = false;
       }

@@ -1,0 +1,14 @@
+{
+  "extensionName": {
+    "message": "Kimi-Timeline",
+    "description": "扩展名称"
+  },
+  "extensionDescription": {
+    "message": "Kimi AI 全能增强插件：集成文件夹管理、对话时间轴、聊天导出等众多功能",
+    "description": "扩展描述"
+  },
+  "popupTitle": {
+    "message": "Kimi-Timeline 控制面板",
+    "description": "弹出窗口标题"
+  }
+}
