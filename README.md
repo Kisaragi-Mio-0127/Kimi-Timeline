@@ -94,9 +94,9 @@ kimi-timeline-extension/
 
 | 项目 | 作者 | 许可证 | 说明 |
 |---|---|---|---|
-| [kimi-voyager](https://github.com/ConfusedTraveler/kimi-voyager) | @ConfusedTraveler | **GPL-3.0** | 原始 Kimi Voyager 项目，提供文件夹管理基础框架 |
-| [gemini-voyager](https://github.com/Nagi-ovo/gemini-voyager) | @Nagi-ovo | **GPL-3.0** | 提供时间轴导航、对话导出、视觉特效等核心功能 |
-| [AITimeline](https://github.com/houyanchao/Timeline) | @houyanchao | MIT | 提供多平台 AI 对话增强的设计思路与交互参考 |
+| [kimi-voyager](https://github.com/ConfusedTraveler/kimi-voyager) | [@ConfusedTraveler](https://github.com/ConfusedTraveler) | **GPL-3.0** | 原始 Kimi Voyager 项目，提供文件夹管理基础框架 |
+| [gemini-voyager](https://github.com/Nagi-ovo/gemini-voyager) | [@Nagi-ovo](https://github.com/Nagi-ovo) | **GPL-3.0** | 提供时间轴导航、对话导出、视觉特效等核心功能 |
+| [AITimeline](https://github.com/houyanchao/Timeline) | [@houyanchao](https://github.com/houyanchao) | MIT | 提供多平台 AI 对话增强的设计思路与交互参考 |
 
 > **特别说明**：由于上游项目 [kimi-voyager](https://github.com/ConfusedTraveler/kimi-voyager) 与 [gemini-voyager](https://github.com/Nagi-ovo/gemini-voyager) 均采用 **GPL-3.0** 许可证，根据 GPL 协议的传染性要求，本项目亦采用 **GPL-3.0** 许可证开源。
 
