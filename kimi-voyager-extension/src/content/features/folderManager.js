@@ -134,7 +134,8 @@ export class FolderManager {
     return list;
   }
 
-  createFolderItem(folder) {
+  createFolderItem(folder, isRoot = true) {
+    const hasChildren = (folder.children?.length > 0) || (folder.conversations?.length > 0);
     const item = createElement('div', {
       className: 'kimi-voyager-folder-item',
       attributes: {
@@ -154,7 +155,19 @@ export class FolderManager {
     // 文件夹图标和名称
     const header = createElement('div', {
       className: 'kimi-voyager-folder-header',
+      events: {
+        contextmenu: (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.showFolderMenu(e, folder);
+        }
+      },
       children: [
+        createElement('span', {
+          className: 'kimi-voyager-folder-arrow',
+          text: hasChildren ? '▶' : '',
+          styles: { visibility: hasChildren ? 'visible' : 'hidden' }
+        }),
         createElement('span', {
           className: 'kimi-voyager-folder-icon',
           text: folder.icon || '📁',
@@ -175,11 +188,12 @@ export class FolderManager {
     item.appendChild(header);
 
     // 子文件夹或对话列表
-    if (folder.children?.length > 0 || folder.conversations?.length > 0) {
+    if (hasChildren) {
       const content = createElement('div', {
         className: 'kimi-voyager-folder-content',
+        styles: { display: 'none' },
         children: [
-          ...folder.children?.map(child => this.createFolderItem(child)) || [],
+          ...folder.children?.map(child => this.createFolderItem(child, false)) || [],
           ...folder.conversations?.map(conv => this.createConversationItem(conv, folder)) || []
         ]
       });
@@ -190,17 +204,23 @@ export class FolderManager {
   }
 
   createConversationItem(conv, folder) {
+    const currentConvId = location.pathname.match(/\/chat\/([^/?#]+)/)?.[1] || '';
+    const isActive = currentConvId && conv.id === currentConvId;
     return createElement('div', {
-      className: 'kimi-voyager-conversation-item',
+      className: `kimi-voyager-conversation-item ${isActive ? 'active' : ''}`,
       attributes: { 'data-conv-id': conv.id },
       events: {
         click: (e) => {
           e.stopPropagation();
           this.openConversation(conv);
+        },
+        contextmenu: (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.showConvMenu(e, conv, folder);
         }
       },
       children: [
-        createElement('span', { text: '💬 ' }),
         createElement('span', {
           className: 'kimi-voyager-conversation-title',
           text: conv.title || '未命名对话'
@@ -343,7 +363,65 @@ export class FolderManager {
   }
 
   showFolderMenu(event, folder) {
+    event.preventDefault();
+    event.stopPropagation();
     // 移除现有的菜单
+    document.querySelectorAll('.kimi-voyager-context-menu').forEach(m => m.remove());
+
+    const removeMenu = () => {
+      menu.remove();
+      document.removeEventListener('mousedown', closeMenu, true);
+      document.removeEventListener('keydown', closeOnEsc, true);
+    };
+
+    const menu = createElement('div', {
+      className: 'kimi-voyager-context-menu',
+      styles: {
+        position: 'fixed',
+        left: `${event.clientX}px`,
+        top: `${event.clientY}px`,
+        zIndex: '999999'
+      },
+      children: [
+        this.createMenuItem('✏️ 重命名', () => {
+          this.renameFolder(folder);
+          removeMenu();
+        }),
+        this.createMenuItem('🎨 更改颜色', () => {
+          this.changeFolderColor(folder);
+          removeMenu();
+        }),
+        this.createMenuItem('📂 添加子文件夹', () => {
+          this.showCreateFolderDialog(folder.id);
+          removeMenu();
+        }),
+        this.createMenuItem('🗑️ 删除', () => {
+          this.deleteFolder(folder);
+          removeMenu();
+        }, true)
+      ]
+    });
+
+    document.body.appendChild(menu);
+
+    // 使用 mousedown + capture 确保一定能捕获到外部点击
+    const closeMenu = (e) => {
+      if (!menu.contains(e.target)) {
+        removeMenu();
+      }
+    };
+    const closeOnEsc = (e) => {
+      if (e.key === 'Escape') {
+        removeMenu();
+      }
+    };
+    requestAnimationFrame(() => {
+      document.addEventListener('mousedown', closeMenu, true);
+      document.addEventListener('keydown', closeOnEsc, true);
+    });
+  }
+
+  showConvMenu(event, conv, folder) {
     document.querySelectorAll('.kimi-voyager-context-menu').forEach(m => m.remove());
 
     const menu = createElement('div', {
@@ -355,16 +433,15 @@ export class FolderManager {
         zIndex: '999999'
       },
       children: [
-        this.createMenuItem('重命名', () => this.renameFolder(folder)),
-        this.createMenuItem('更改颜色', () => this.changeFolderColor(folder)),
-        this.createMenuItem('添加子文件夹', () => this.showCreateFolderDialog(folder.id)),
-        this.createMenuItem('删除', () => this.deleteFolder(folder), true)
+        this.createMenuItem('从文件夹移除', () => {
+          this.removeConversationFromFolder(conv.id, folder);
+        }),
+        this.createMenuItem('打开对话', () => this.openConversation(conv))
       ]
     });
 
     document.body.appendChild(menu);
 
-    // 点击其他地方关闭菜单
     const closeMenu = (e) => {
       if (!menu.contains(e.target)) {
         menu.remove();
@@ -372,6 +449,13 @@ export class FolderManager {
       }
     };
     setTimeout(() => document.addEventListener('click', closeMenu), 0);
+  }
+
+  async removeConversationFromFolder(convId, folder) {
+    folder.conversations = folder.conversations.filter(c => c.id !== convId);
+    await this.saveFolders();
+    this.refreshUI();
+    showToast('已从文件夹移除', 'success');
   }
 
   createMenuItem(label, onClick, isDanger = false) {
@@ -401,11 +485,20 @@ export class FolderManager {
 
   async deleteFolder(folder) {
     if (confirm(`确定要删除文件夹 "${folder.name}" 吗？`)) {
-      this.folders = this.folders.filter(f => f.id !== folder.id);
+      this.folders = this.removeFolderRecursive(this.folders, folder.id);
       await this.saveFolders();
       this.refreshUI();
       showToast('文件夹已删除', 'success');
     }
+  }
+
+  removeFolderRecursive(folders, id) {
+    return folders.filter(f => f.id !== id).map(f => {
+      if (f.children) {
+        f.children = this.removeFolderRecursive(f.children, id);
+      }
+      return f;
+    });
   }
 
   setupDragAndDrop() {
@@ -443,7 +536,7 @@ export class FolderManager {
         if (item.dataset.voyagerDraggable === 'true') return;
         
         item.dataset.voyagerDraggable = 'true';
-        item.draggable = true;
+        item.draggable = false;
         
         // 获取聊天 ID 和名称
         const href = item.getAttribute('href') || '';
@@ -468,7 +561,34 @@ export class FolderManager {
         item.dataset.convId = convId;
         item.dataset.convTitle = title;
         
+        // 使用捕获阶段 mousedown 确保长按逻辑不受子元素事件拦截影响
+        let longPressTimer = null;
+        const onMouseDown = (e) => {
+          if (e.button !== 0) return;
+          const row = e.target.closest('.sidebar-nav .chat-info-item, a[href*="/chat/"], [class*="chat-item"], [class*="conversation-item"], [class*="chat-info"], [data-conv-id], [data-chat-id]') || item;
+          row.draggable = false;
+          longPressTimer = setTimeout(() => {
+            longPressTimer = null;
+            row.draggable = true;
+          }, 400);
+        };
+        const onMouseUp = () => {
+          if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+          }
+          item.draggable = false;
+        };
+        
+        item.addEventListener('mousedown', onMouseDown, true);
+        item.addEventListener('mouseup', onMouseUp, true);
+        item.addEventListener('mouseleave', onMouseUp, true);
+        
         item.addEventListener('dragstart', (e) => {
+          if (!item.draggable) {
+            e.preventDefault();
+            return;
+          }
           e.dataTransfer.setData('application/json', JSON.stringify({
             type: 'conversation',
             id: convId,
@@ -481,6 +601,7 @@ export class FolderManager {
         });
         
         item.addEventListener('dragend', () => {
+          item.draggable = false;
           item.style.opacity = '1';
           item.classList.remove('dragging');
           console.log(`📁 Drag ended: ${title}`);
@@ -562,7 +683,15 @@ export class FolderManager {
     // 展开/折叠文件夹
     const element = document.querySelector(`[data-folder-id="${folder.id}"]`);
     if (element) {
-      element.classList.toggle('expanded');
+      const isExpanded = element.classList.toggle('expanded');
+      const arrow = element.querySelector(':scope > .kimi-voyager-folder-header > .kimi-voyager-folder-arrow');
+      if (arrow) {
+        arrow.textContent = isExpanded ? '▼' : '▶';
+      }
+      const content = element.querySelector(':scope > .kimi-voyager-folder-content');
+      if (content) {
+        content.style.display = isExpanded ? 'block' : 'none';
+      }
     }
   }
 
@@ -679,6 +808,21 @@ export class FolderManager {
         padding: 8px;
         cursor: pointer;
         border-radius: 8px;
+        user-select: none;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      
+      .kimi-voyager-folder-arrow {
+        font-size: 10px;
+        color: #9ca3af;
+        width: 12px;
+        text-align: center;
+        transition: transform 0.2s;
+      }
+      
+      .kimi-voyager-folder-item.expanded > .kimi-voyager-folder-header .kimi-voyager-folder-arrow {
+        transform: rotate(90deg);
       }
       
       .kimi-voyager-folder-icon {
@@ -745,6 +889,12 @@ export class FolderManager {
       .kimi-voyager-conversation-item:hover {
         background: rgba(255, 255, 255, 0.05);
         color: #e5e7eb;
+      }
+      
+      .kimi-voyager-conversation-item.active {
+        background: rgba(79, 70, 229, 0.15);
+        color: #e5e7eb;
+        border-left: 3px solid #4f46e5;
       }
       
       .kimi-voyager-context-menu {

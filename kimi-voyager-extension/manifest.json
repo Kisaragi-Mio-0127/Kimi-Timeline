@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kimi Voyager",
-  "version": "2.0.0",
+  "version": "1.0.0",
   "description": "An all-in-one enhancement suite for Kimi AI - folder management, prompt library, chat export and more.",
   "default_locale": "zh_CN",
   "permissions": [
@@ -10,7 +10,8 @@
     "scripting",
     "downloads",
     "clipboardWrite",
-    "contextMenus"
+    "contextMenus",
+    "cookies"
   ],
   "host_permissions": [
     "https://kimi.moonshot.cn/*",

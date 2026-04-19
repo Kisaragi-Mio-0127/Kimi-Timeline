@@ -471,6 +471,7 @@ export class Timeline {
           font-size: 12px;
           color: #9ca3af;
           line-height: 1.4;
+          position: relative;
         }
         
         .kimi-voyager-timeline-item:hover {

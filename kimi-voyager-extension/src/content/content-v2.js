@@ -6,6 +6,117 @@
 (function() {
   'use strict';
 
+  // ============ Global Network Interceptor (must run before any fetch) ============
+  window.__kimiVoyagerInterceptedData = window.__kimiVoyagerInterceptedData || [];
+  window.__kimiVoyagerInterceptedMessages = window.__kimiVoyagerInterceptedMessages || [];
+  
+  // 从 API 响应中提取用户消息（FolderManager 式宽松解析）
+  function extractUserMessagesFromData(data) {
+    const messages = [];
+    if (!data) return messages;
+    
+    // 尝试 10+ 种常见字段路径
+    const possibleLists = [
+      data.messages,
+      data.conversation?.messages,
+      data.data?.messages,
+      data.chat?.messages,
+      data.currentChat?.messages,
+      data.items,
+      data.list,
+      data.results,
+      Array.isArray(data) ? data : null
+    ];
+    
+    for (const list of possibleLists) {
+      if (!Array.isArray(list)) continue;
+      for (const msg of list) {
+        if (!msg) continue;
+        const role = msg.role || msg.sender || msg.type;
+        const content = msg.content || msg.text || msg.message || msg.body;
+        if (role === 'user' && content) {
+          let text = '';
+          if (typeof content === 'string') {
+            text = content;
+          } else if (Array.isArray(content)) {
+            // OpenAI 格式: [{type:'text',text:'...'}] 或 [{type:'image_url',...}]
+            text = content.map(c => c.text || c.value || '').join('');
+          } else {
+            text = content.text || content.parts?.join('') || JSON.stringify(content);
+          }
+          if (text && text.trim()) messages.push(text.trim());
+        }
+      }
+    }
+    return messages;
+  }
+  
+  if (!window.__kimiVoyagerFetchHooked) {
+    window.__kimiVoyagerFetchHooked = true;
+    
+    const _origFetch = window.fetch;
+    window.fetch = async function(...args) {
+      const [url, options] = args;
+      const urlStr = typeof url === 'string' ? url : (url?.url || url?.toString?.() || '');
+      try {
+        const resp = await _origFetch.apply(this, args);
+        try {
+          // 只处理成功的 JSON 响应，避免在错误响应上浪费资源
+          if (resp.ok) {
+            const ct = resp.headers.get('content-type') || '';
+            if (ct.includes('json')) {
+              const clone = resp.clone();
+              clone.json().then(data => {
+                const isChatApi = /\/(api\/)?(chat|conversation)s?(\/|list|history|\?|$)/i.test(urlStr);
+                if (isChatApi && data) {
+                  window.__kimiVoyagerInterceptedData.push(data);
+                  // 实时提取消息，供 Timeline 直接使用
+                  const msgs = extractUserMessagesFromData(data);
+                  if (msgs.length > 0) {
+                    window.__kimiVoyagerInterceptedMessages.push(...msgs);
+                  }
+                }
+              }).catch(() => {});
+            }
+          }
+        } catch (e) {}
+        return resp;
+      } catch (e) {
+        // 修复：请求失败时直接抛出错误，不再重复发送请求
+        throw e;
+      }
+    };
+    
+    const _origXHROpen = XMLHttpRequest.prototype.open;
+    const _origXHRSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.open = function(method, url) {
+      this._voyagerUrl = url;
+      return _origXHROpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function(...sArgs) {
+      // 修复：避免对同一个 XHR 实例重复添加 load 监听器
+      if (!this._voyagerLoadHooked) {
+        this._voyagerLoadHooked = true;
+        this.addEventListener('load', function() {
+          try {
+            const url = this._voyagerUrl || '';
+            const isChatApi = /\/(api\/)?(chat|conversation)s?(\/|list|history|\?|$)/i.test(url);
+            if (isChatApi && this.responseText) {
+              const data = JSON.parse(this.responseText);
+              window.__kimiVoyagerInterceptedData.push(data);
+              // 实时提取消息
+              const msgs = extractUserMessagesFromData(data);
+              if (msgs.length > 0) {
+                window.__kimiVoyagerInterceptedMessages.push(...msgs);
+              }
+            }
+          } catch (e) {}
+        });
+      }
+      return _origXHRSend.apply(this, sArgs);
+    };
+  }
+
   // ============ DOM Utilities ============
   function createElement(tag, options = {}) {
     const element = document.createElement(tag);
@@ -80,25 +191,65 @@
     
     async loadFolders() {
       try {
+        if (!chrome.runtime?.id) return this.folders;
         const response = await chrome.storage.local.get('folders');
         this.folders = response.folders || [];
       } catch (error) {
+        if (error.message?.includes('Extension context invalidated')) {
+          console.warn('⚠️ Extension context invalidated in loadFolders');
+        }
         this.folders = [];
       }
       return this.folders;
     },
     
     async saveFolders() {
-      await chrome.storage.local.set({ folders: this.folders });
+      try {
+        if (!chrome.runtime?.id) return;
+        await chrome.storage.local.set({ folders: this.folders });
+      } catch (error) {
+        if (error.message?.includes('Extension context invalidated')) {
+          console.warn('⚠️ Extension context invalidated in saveFolders');
+        } else {
+          console.error('Save folders error:', error);
+        }
+      }
     },
     
-    addConversationToFolder(convId, convTitle, folderId) {
-      const folder = this.folders.find(f => f.id === folderId);
-      if (!folder) return false;
-      if (!folder.conversations) folder.conversations = [];
-      if (folder.conversations.find(c => c.id === convId)) return false;
+    moveConversationToFolder(convId, convTitle, folderId) {
+      // 递归查找文件夹
+      const findFolder = (folders, id) => {
+        for (const f of folders) {
+          if (f.id === id) return f;
+          if (f.children) {
+            const found = findFolder(f.children, id);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
       
-      folder.conversations.push({
+      // 递归从所有文件夹中移除对话
+      const removeConv = (folders) => {
+        folders.forEach(f => {
+          if (f.conversations) {
+            f.conversations = f.conversations.filter(c => c.id !== convId);
+          }
+          if (f.children) removeConv(f.children);
+        });
+      };
+      
+      const targetFolder = findFolder(this.folders, folderId);
+      if (!targetFolder) return false;
+      if (!targetFolder.conversations) targetFolder.conversations = [];
+      
+      // 如果已在目标文件夹，无需移动
+      if (targetFolder.conversations.find(c => c.id === convId)) return false;
+      
+      // 先从所有文件夹（包括子文件夹）中移除该对话（确保唯一）
+      removeConv(this.folders);
+      
+      targetFolder.conversations.push({
         id: convId,
         title: convTitle || '未命名对话',
         addedAt: Date.now()
@@ -296,10 +447,15 @@
       this.messages = [];
       this.currentIndex = 0;
       this.isDragging = false;
-      this.dragStartY = 0;
-      this.dragStartTop = 0;
+      this.dragOffsetX = 0;
+      this.dragOffsetY = 0;
       this.updateInterval = null;
       this.preview = null;
+      this.starredTexts = new Set();
+      this.scrollObserver = null;
+      this.scrollContainer = null;
+      this.scrollHandler = null;
+      this.ACTIVATE_AHEAD = 120; // 提前激活距离（像素）
     }
 
     init() {
@@ -377,30 +533,60 @@
     setupDragging() {
       const dragHandle = this.track.querySelector('.kimi-voyager-timeline-draghandle');
       
-      dragHandle.addEventListener('mousedown', (e) => {
+      const startDrag = (clientX, clientY) => {
         this.isDragging = true;
-        this.dragStartY = e.clientY;
-        this.dragStartTop = this.container.offsetTop;
+        const rect = this.container.getBoundingClientRect();
+        this.dragOffsetX = clientX - rect.left;
+        this.dragOffsetY = clientY - rect.top;
         this.container.style.cursor = 'grabbing';
+        // 关键修复：先将当前视觉位置固定为像素值，再清除 transform，避免跳动
+        this.container.style.right = 'auto';
+        this.container.style.bottom = 'auto';
+        this.container.style.left = rect.left + 'px';
+        this.container.style.top = rect.top + 'px';
+        this.container.style.transform = 'none';
+      };
+      
+      const onMove = (clientX, clientY) => {
+        if (!this.isDragging) return;
+        let newLeft = clientX - this.dragOffsetX;
+        let newTop = clientY - this.dragOffsetY;
+        const maxLeft = window.innerWidth - this.container.offsetWidth;
+        const maxTop = window.innerHeight - this.container.offsetHeight;
+        newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+        newTop = Math.max(0, Math.min(newTop, maxTop));
+        this.container.style.left = newLeft + 'px';
+        this.container.style.top = newTop + 'px';
+        this.container.style.right = 'auto';
+      };
+      
+      const endDrag = () => {
+        if (!this.isDragging) return;
+        this.isDragging = false;
+        this.container.style.cursor = 'default';
+      };
+      
+      dragHandle.addEventListener('mousedown', (e) => {
+        startDrag(e.clientX, e.clientY);
         e.preventDefault();
       });
-
-      document.addEventListener('mousemove', (e) => {
+      
+      document.addEventListener('mousemove', (e) => onMove(e.clientX, e.clientY));
+      document.addEventListener('mouseup', endDrag);
+      
+      // Touch support for mobile
+      dragHandle.addEventListener('touchstart', (e) => {
+        const touch = e.touches[0];
+        startDrag(touch.clientX, touch.clientY);
+      }, { passive: false });
+      
+      document.addEventListener('touchmove', (e) => {
         if (!this.isDragging) return;
-        const deltaY = e.clientY - this.dragStartY;
-        let newTop = this.dragStartTop + deltaY;
-        const maxTop = window.innerHeight - this.track.offsetHeight;
-        newTop = Math.max(20, Math.min(newTop, maxTop));
-        this.container.style.top = newTop + 'px';
-        this.container.style.bottom = 'auto';
-      });
-
-      document.addEventListener('mouseup', () => {
-        if (this.isDragging) {
-          this.isDragging = false;
-          this.container.style.cursor = 'default';
-        }
-      });
+        const touch = e.touches[0];
+        onMove(touch.clientX, touch.clientY);
+      }, { passive: false });
+      
+      document.addEventListener('touchend', endDrag);
     }
 
     startMessageUpdate() {
@@ -427,6 +613,9 @@
         const chatList = document.querySelector('.chat-content-list') || document.querySelector('main');
         if (chatList) allMessages = chatList.querySelectorAll(':scope > div');
       }
+      
+      // 尝试从页面全局变量或拦截器获取补充消息（仿照 chat/history 的多源获取逻辑）
+      const apiMessages = this.fetchMessagesFromAPI();
       
       const userMessages = [];
       allMessages.forEach((el, idx) => {
@@ -457,11 +646,95 @@
         }
       });
       
-      if (userMessages.length !== this.messages.length) {
+      // 如果 API 数据有更多消息但 DOM 还没渲染完，补充占位（等 DOM 更新后会自动替换）
+      if (apiMessages.length > userMessages.length) {
+        for (let i = userMessages.length; i < apiMessages.length; i++) {
+          userMessages.push({
+            index: i,
+            element: null,
+            originalIndex: -1,
+            displayText: apiMessages[i].length > 60 ? apiMessages[i].substring(0, 60) + '...' : apiMessages[i],
+            fullText: apiMessages[i]
+          });
+        }
+      }
+      
+      const hasChanged = userMessages.length !== this.messages.length ||
+        userMessages.some((m, i) => this.messages[i] && m.fullText !== this.messages[i].fullText);
+      
+      if (hasChanged) {
+        // DOM 可能重构，清除滚动容器缓存和 offsetTop 缓存
+        this.scrollContainer = null;
         this.messages = userMessages;
+        this.messages.forEach(m => { m.offsetTop = undefined; });
         this.renderTimeline();
         this.renderPromptList();
+        // 重新绑定滚动监听（如果 scrollContainer 变了）
+        this._attachScrollListener();
+        this.updateCurrentIndex();
+      } else {
+        // 即使文本内容未变，React/Vue 可能已重新渲染 DOM，需要刷新 element 引用
+        userMessages.forEach((msg, i) => {
+          if (this.messages[i] && msg.element) {
+            this.messages[i].element = msg.element;
+            this.messages[i].offsetTop = undefined; // DOM 变了，offsetTop 需重新计算
+          }
+        });
       }
+    }
+    
+    fetchMessagesFromAPI() {
+      const messages = [];
+      const seen = new Set();
+      
+      try {
+        // 方法1: 从专门的消息缓存中获取（网络拦截器实时提取）
+        const cached = window.__kimiVoyagerInterceptedMessages;
+        if (cached && cached.length > 0) {
+          cached.forEach(text => {
+            if (text && !seen.has(text)) {
+              seen.add(text);
+              messages.push(text);
+            }
+          });
+        }
+      } catch (e) {}
+      
+      try {
+        // 方法2: 从通用拦截数据中解析（兜底）
+        const pending = window.__kimiVoyagerInterceptedData;
+        if (pending && pending.length > 0) {
+          pending.forEach(data => {
+            const msgs = extractUserMessagesFromData(data);
+            msgs.forEach(text => {
+              if (text && !seen.has(text)) {
+                seen.add(text);
+                messages.push(text);
+              }
+            });
+          });
+        }
+      } catch (e) {}
+      
+      try {
+        // 方法3: 从页面全局变量获取
+        const globalKeys = ['__INITIAL_STATE__', '__DATA__', '__APP__', '_KIMI_DATA', 'kimiData'];
+        for (const gk of globalKeys) {
+          const globalData = window[gk];
+          if (globalData) {
+            const msgs = extractUserMessagesFromData(globalData);
+            msgs.forEach(text => {
+              if (text && !seen.has(text)) {
+                seen.add(text);
+                messages.push(text);
+              }
+            });
+            if (messages.length > 0) break;
+          }
+        }
+      } catch (e) {}
+      
+      return messages;
     }
 
     renderTimeline() {
@@ -477,9 +750,10 @@
       }
 
       this.messages.forEach((msg, index) => {
+        const isStarred = this.starredTexts.has(msg.fullText);
         const node = createElement('div', {
-          className: `kimi-voyager-timeline-node ${index === this.currentIndex ? 'active' : ''}`,
-          attributes: { 'data-index': index },
+          className: `kimi-voyager-timeline-node ${index === this.currentIndex ? 'active' : ''} ${isStarred ? 'starred' : ''}`,
+          attributes: { 'data-index': index, title: isStarred ? '⭐ 已星标' : '' },
           events: {
             click: () => this.navigateToMessage(index),
             mouseenter: (e) => this.showPreview(e, msg),
@@ -505,8 +779,9 @@
       const list = createElement('div', { className: 'kimi-voyager-prompt-items' });
 
       this.messages.forEach((msg, index) => {
+        const isStarred = this.starredTexts.has(msg.fullText);
         const item = createElement('div', {
-          className: `kimi-voyager-prompt-item ${index === this.currentIndex ? 'active' : ''}`,
+          className: `kimi-voyager-prompt-item ${index === this.currentIndex ? 'active' : ''} ${isStarred ? 'starred' : ''}`,
           attributes: { 'data-index': index },
           events: {
             click: () => this.navigateToMessage(index),
@@ -519,7 +794,7 @@
             }),
             createElement('span', {
               className: 'prompt-item-text',
-              text: msg.displayText || '(空消息)'
+              text: (isStarred ? '⭐ ' : '') + (msg.displayText || '(空消息)')
             })
           ]
         });
@@ -560,10 +835,10 @@
           }),
           createElement('div', {
             className: 'menu-item',
-            text: '⭐ 添加星标',
+            text: this.starredTexts.has(msg.fullText) ? '❌ 取消星标' : '⭐ 添加星标',
             events: {
               click: () => {
-                showToast('已添加星标', 'success');
+                this.toggleStar(msg);
                 menu.remove();
               }
             }
@@ -578,6 +853,18 @@
           document.removeEventListener('click', closeMenu);
         });
       }, 0);
+    }
+
+    toggleStar(msg) {
+      if (this.starredTexts.has(msg.fullText)) {
+        this.starredTexts.delete(msg.fullText);
+        showToast('已取消星标', 'success');
+      } else {
+        this.starredTexts.add(msg.fullText);
+        showToast('已添加星标', 'success');
+      }
+      this.renderTimeline();
+      this.renderPromptList();
     }
 
     showPreview(event, msg) {
@@ -610,30 +897,122 @@
       }
     }
 
+    findScrollContainer() {
+      if (this.scrollContainer) return this.scrollContainer;
+      
+      // 策略1：从第一个消息元素向上遍历，找到 overflowY 为 auto/scroll 的父元素（最可靠）
+      const firstMsg = this.messages.find(m => m.element)?.element;
+      if (firstMsg) {
+        let parent = firstMsg.parentElement;
+        while (parent && parent !== document.body) {
+          const style = window.getComputedStyle(parent);
+          if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+            this.scrollContainer = parent;
+            return parent;
+          }
+          parent = parent.parentElement;
+        }
+      }
+      
+      // 策略2：通过常见选择器查找可滚动容器
+      const selectors = [
+        '.chat-content-list',
+        'main',
+        '[class*="chat-content"]',
+        '[class*="conversation"]',
+        '[class*="message-list"]'
+      ];
+      for (const selector of selectors) {
+        const el = document.querySelector(selector);
+        if (el) {
+          const style = window.getComputedStyle(el);
+          if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+            this.scrollContainer = el;
+            return el;
+          }
+        }
+      }
+      
+      // 最终兜底：document 级别的滚动
+      this.scrollContainer = document.scrollingElement || document.documentElement || document.body;
+      return this.scrollContainer;
+    }
+    
+    computeOffsetTop(element, container) {
+      if (!element || !container) return 0;
+      const elemRect = element.getBoundingClientRect();
+      const contRect = container.getBoundingClientRect();
+      return elemRect.top - contRect.top + (container.scrollTop || 0);
+    }
+
     setupScrollHandler() {
-      window.addEventListener('scroll', throttle(() => this.updateCurrentIndex(), 100), { passive: true });
+      // 使用 requestAnimationFrame 节流，比 throttle(setTimeout) 更流畅
+      let scrollRafId = null;
+      this.scrollHandler = () => {
+        if (scrollRafId !== null) return;
+        scrollRafId = requestAnimationFrame(() => {
+          scrollRafId = null;
+          this.updateCurrentIndex();
+        });
+      };
+      
+      // 绑定 window 滚动（作为后备）
+      window.addEventListener('scroll', this.scrollHandler, { passive: true });
+      
+      // 尝试找到并绑定正确的滚动容器
+      this._attachScrollListener();
+      
+      // 监听 DOM 变化：重新发现滚动容器并同步激活状态
+      this.scrollObserver = new MutationObserver(() => {
+        if (this.scrollContainer && !this.scrollContainer.isConnected) {
+          this.scrollContainer = null;
+        }
+        this._attachScrollListener();
+        this.updateCurrentIndex();
+      });
+      this.scrollObserver.observe(document.body, { childList: true, subtree: true });
+    }
+    
+    _attachScrollListener() {
+      const container = this.findScrollContainer();
+      if (container && !container._voyagerScrollBound) {
+        container._voyagerScrollBound = true;
+        container.addEventListener('scroll', this.scrollHandler, { passive: true });
+        console.log('🕐 Timeline: scroll listener attached to', container.tagName, container.className?.slice(0, 50));
+      }
     }
 
     updateCurrentIndex() {
       if (this.messages.length === 0) return;
       
-      const viewportCenter = window.innerHeight / 2;
-      let closestIndex = 0;
-      let closestDistance = Infinity;
-
-      this.messages.forEach((msg, index) => {
-        const rect = msg.element.getBoundingClientRect();
-        const elementCenter = rect.top + rect.height / 2;
-        const distance = Math.abs(elementCenter - viewportCenter);
-
-        if (distance < closestDistance) {
-          closestDistance = distance;
-          closestIndex = index;
+      const container = this.findScrollContainer();
+      if (!container) return;
+      
+      const scrollTop = container.scrollTop || 0;
+      let activeIndex = 0;
+      let foundValid = false;
+      
+      // 核心逻辑（仿照 houyanchao/Timeline）：
+      // 找最后一个 offsetTop <= scrollTop + ACTIVATE_AHEAD 的节点
+      for (let i = 0; i < this.messages.length; i++) {
+        const msg = this.messages[i];
+        if (!msg.element || !msg.element.isConnected) continue;
+        
+        const offsetTop = msg.offsetTop ?? this.computeOffsetTop(msg.element, container);
+        if (msg.offsetTop === undefined) msg.offsetTop = offsetTop;
+        
+        if ((offsetTop - this.ACTIVATE_AHEAD) <= scrollTop) {
+          activeIndex = i;
+          foundValid = true;
+        } else {
+          break;
         }
-      });
+      }
+      
+      if (!foundValid) return;
 
-      if (closestIndex !== this.currentIndex) {
-        this.currentIndex = closestIndex;
+      if (activeIndex !== this.currentIndex) {
+        this.currentIndex = activeIndex;
         this.highlightCurrent();
       }
     }
@@ -658,7 +1037,9 @@
     navigateToMessage(index) {
       if (index >= 0 && index < this.messages.length) {
         const msg = this.messages[index];
-        msg.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (msg.element) {
+          msg.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
         this.currentIndex = index;
         this.highlightCurrent();
       }
@@ -790,6 +1171,14 @@
             background: rgba(79, 70, 229, 0.25);
             color: #e5e7eb;
             border-left: 3px solid #4f46e5;
+          }
+
+          .kimi-voyager-prompt-item.starred {
+            background: rgba(251, 191, 36, 0.1);
+          }
+
+          .kimi-voyager-prompt-item.starred .prompt-item-text {
+            color: #fbbf24;
           }
 
           .prompt-item-number {
@@ -928,6 +1317,16 @@
             transform: scale(1.2);
           }
 
+          .kimi-voyager-timeline-node.starred {
+            background: #fbbf24;
+            box-shadow: 0 0 6px rgba(251, 191, 36, 0.6);
+          }
+
+          .kimi-voyager-timeline-node.starred.active {
+            background: #fbbf24;
+            box-shadow: 0 0 10px rgba(251, 191, 36, 0.8);
+          }
+
           /* Preview Tooltip */
           .kimi-voyager-timeline-preview {
             background: rgba(31, 41, 55, 0.95);
@@ -999,6 +1398,17 @@
       if (this.updateInterval) {
         clearInterval(this.updateInterval);
         this.updateInterval = null;
+      }
+      if (this.scrollObserver) {
+        this.scrollObserver.disconnect();
+        this.scrollObserver = null;
+      }
+      if (this.scrollHandler) {
+        window.removeEventListener('scroll', this.scrollHandler);
+        if (this.scrollContainer) {
+          this.scrollContainer.removeEventListener('scroll', this.scrollHandler);
+        }
+        this.scrollHandler = null;
       }
       this.hidePreview();
       if (this.container) {
@@ -1152,6 +1562,19 @@
       this.hiddenHistoryExpanded = false;
       this.hiddenConversations = [];
       this.sidebarConvIds = new Set();
+      this.currentDrag = null;
+      this.lastRightClickedConv = null;
+      this.historyLoaded = false;
+      this.folderDropTargetIndex = undefined;
+      this.mouseDrag = null; // 自定义鼠标拖曳状态
+      this._dragState = null; // 全局拖拽状态（用于跨区域拖拽视觉反馈）
+      this._currentDropTarget = null;
+      this._dropPosition = null;
+      // 拦截数据轮询相关
+      this.interceptedDataPollInterval = null;
+      this.lastProcessedInterceptedIndex = 0;
+      this.autoLoadAttempts = 0;
+      this._foldersRendered = false;
     }
 
     async init() {
@@ -1160,51 +1583,166 @@
       this.createUI();
       this.injectStyles();
       this.setupDragAndDrop();
-      this.setupContextMenus();
+      this.setupGlobalLongPressDrag(); // 全局长按拖拽
+      this.observeNativeMenus();
+      // 处理全局拦截器在 FolderManager 初始化之前已捕获的数据
+      this.processPendingInterceptedData();
+      // 启动持续监听新拦截数据
+      this.startInterceptedDataPolling();
+      // 后台自动加载历史对话
+      this.autoLoadHistory();
+      // 在历史对话页面尝试点击"查看全部"触发更多加载
+      if (location.pathname.includes('/chat/history')) {
+        setTimeout(() => this.triggerLoadMoreOnHistoryPage(), 1500);
+      }
     }
 
     createUI() {
+      // 防止重复创建：如果已有容器且仍在DOM中，直接返回
+      if (this.container && this.container.isConnected) {
+        return;
+      }
+      // 清理可能残留的旧容器
+      if (this.container) {
+        this.container.remove();
+        this.container = null;
+      }
+      document.querySelectorAll('.kimi-voyager-folders').forEach(el => el.remove());
+
       let insertPoint = null;
-      const selectors = ['.history-part', '[class*="history"]', '.sidebar', '[class*="sidebar"]', 'aside'];
+      let matchedSelector = '';
+      const selectors = [
+        '.history-part', '[class*="history-part"]', '[class*="history_list"]',
+        '.sidebar', '[class*="sidebar"]', '[class*="side-bar"]',
+        'aside', '[class*="sidenav"]', '[class*="navigation"]', 'nav'
+      ];
       
       for (const selector of selectors) {
-        insertPoint = document.querySelector(selector);
-        if (insertPoint) break;
+        const el = document.querySelector(selector);
+        if (!el) continue;
+        // 验证元素是否看起来像侧边栏（在视口左侧、有足够高度），避免匹配顶部导航栏
+        const rect = el.getBoundingClientRect();
+        const isLeftSide = rect.left < window.innerWidth / 2;
+        const hasHeight = rect.height > 100;
+        const isVisible = rect.width > 0 && rect.height > 0;
+        if (isLeftSide && hasHeight && isVisible) {
+          insertPoint = el;
+          matchedSelector = selector;
+          console.log(`📁 FolderManager: Found insert point with selector: ${selector}`, el, rect);
+          break;
+        } else {
+          console.log(`📁 FolderManager: Selector "${selector}" matched but rejected (left=${Math.round(rect.left)}, height=${Math.round(rect.height)}, visible=${isVisible})`);
+        }
       }
       
       if (!insertPoint) {
-        setTimeout(() => this.createUI(), 2000);
+        // 使用 MutationObserver + setInterval 双重 fallback 持续查找
+        if (!this._uiObserver) {
+          console.log('📁 FolderManager: Sidebar not found, starting MutationObserver + interval to wait for it...');
+          this._uiObserver = new MutationObserver(() => {
+            if (this.container && this.container.isConnected) return;
+            this.createUI();
+          });
+          this._uiObserver.observe(document.body, { childList: true, subtree: true });
+        }
+        if (!this._uiRetryInterval) {
+          this._uiRetryInterval = setInterval(() => {
+            if (this.container && this.container.isConnected) {
+              this._clearUICreationRetries();
+              return;
+            }
+            this.createUI();
+          }, 1500);
+        }
         return;
+      }
+
+      this._clearUICreationRetries();
+
+      // 确保样式已注入（防御性：防止 observer 后续调用时样式丢失）
+      if (!document.querySelector('style[data-kv-folder-styles]')) {
+        this.injectStyles();
       }
 
       this.container = createElement('div', {
         className: 'kimi-voyager-folders',
+        styles: {
+          marginBottom: '16px',
+          padding: '12px',
+          background: 'rgba(255,255,255,0.05)',
+          borderRadius: '12px',
+          border: '1px solid rgba(255,255,255,0.1)',
+          color: '#e5e7eb',
+          fontSize: '14px',
+          fontFamily: 'system-ui, -apple-system, sans-serif'
+        },
         children: [
-          // 文件夹头部
           createElement('div', {
             className: 'kimi-voyager-folders-header',
+            styles: {
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '12px'
+            },
             children: [
-              createElement('span', { className: 'kimi-voyager-folders-title', text: '📁 我的文件夹' }),
-              createElement('button', {
-                className: 'kimi-voyager-folders-add-btn',
-                text: '+',
-                events: { click: () => this.createFolder() }
+              createElement('span', { className: 'kimi-voyager-folders-title', text: '📁 我的文件夹', styles: { fontWeight: '600', fontSize: '14px', color: '#e5e7eb' } }),
+              createElement('div', {
+                className: 'kimi-voyager-folders-actions',
+                styles: { display: 'flex', alignItems: 'center', gap: '6px' },
+                children: [
+                  createElement('button', {
+                    className: 'kimi-voyager-folders-menu-btn',
+                    text: '⋮',
+                    styles: {
+                      width: '24px',
+                      height: '24px',
+                      border: 'none',
+                      background: 'rgba(255,255,255,0.1)',
+                      color: '#e5e7eb',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    },
+                    events: { click: (e) => this.showFolderMenu(e) }
+                  }),
+                  createElement('button', {
+                    className: 'kimi-voyager-folders-add-btn',
+                    text: '+',
+                    styles: {
+                      width: '24px',
+                      height: '24px',
+                      border: 'none',
+                      background: '#4f46e5',
+                      color: 'white',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    },
+                    events: { click: () => this.createFolder() }
+                  })
+                ]
               })
             ]
           }),
-          // 文件夹列表
           createElement('div', { className: 'kimi-voyager-folders-list' }),
-          // 查看更多历史
           createElement('div', {
             className: 'kimi-voyager-hidden-history-section',
             children: [
               createElement('div', {
                 className: 'kimi-voyager-hidden-history-header',
+                styles: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 0', cursor: 'pointer' },
                 events: { click: () => this.toggleHiddenHistory() },
                 children: [
-                  createElement('span', { className: 'hidden-history-icon', text: '📂' }),
-                  createElement('span', { className: 'hidden-history-title', text: '查看更多历史' }),
-                  createElement('span', { className: 'hidden-history-arrow', text: '▶' })
+                  createElement('span', { className: 'hidden-history-title', text: '📂 所有对话', styles: { flex: '1', fontSize: '13px' } }),
+                  createElement('span', { className: 'hidden-history-count', text: '', styles: { fontSize: '12px', color: '#6b7280' } }),
+                  createElement('span', { className: 'hidden-history-arrow', text: '▶', styles: { fontSize: '10px', color: '#6b7280' } })
                 ]
               }),
               createElement('div', {
@@ -1216,13 +1754,52 @@
         ]
       });
 
-      insertPoint.parentElement.insertBefore(this.container, insertPoint);
+      // 稳定插入：优先在历史区域之前插入；否则在 sidebar 顶部，最后 fallback 到 append
+      if (insertPoint) {
+        const historyLike = insertPoint.matches?.('[class*="history"], .history-part') || insertPoint.className?.includes('history');
+        if (historyLike && insertPoint.parentElement && insertPoint.parentElement.contains(insertPoint)) {
+          try {
+            insertPoint.parentElement.insertBefore(this.container, insertPoint);
+          } catch (e) {
+            console.warn('📁 insertBefore failed, falling back to prepend:', e.message);
+            insertPoint.prepend?.(this.container) || insertPoint.appendChild(this.container);
+          }
+        } else {
+          // insertPoint 是 sidebar/aside/nav 等容器：在其内部查找历史区域
+          const innerHistory = insertPoint.querySelector('.history-part, [class*="history"]');
+          const innerParent = innerHistory?.parentNode;
+          if (innerHistory && innerParent && innerParent !== this.container && innerParent.contains(innerHistory)) {
+            try {
+              innerParent.insertBefore(this.container, innerHistory);
+            } catch (e) {
+              console.warn('📁 insertBefore (innerHistory) failed, falling back to prepend:', e.message);
+              insertPoint.prepend?.(this.container) || insertPoint.appendChild(this.container);
+            }
+          } else {
+            insertPoint.prepend?.(this.container) || insertPoint.appendChild(this.container);
+          }
+        }
+      } else if (document.body) {
+        document.body.appendChild(this.container);
+      }
       this.renderFolders();
     }
 
-    renderFolders() {
+    async renderFolders() {
+      if (!this.container) return;
       const list = this.container.querySelector('.kimi-voyager-folders-list');
+      if (!list) return;
       list.innerHTML = '';
+
+      // 防御性：首次渲染且文件夹为空时，尝试重新加载一次
+      if (globalState.folders.length === 0 && !this._foldersRendered) {
+        this._foldersRendered = true;
+        await globalState.loadFolders();
+        if (globalState.folders.length > 0) {
+          return this.renderFolders();
+        }
+      }
+      this._foldersRendered = true;
 
       if (globalState.folders.length === 0) {
         list.appendChild(createElement('div', {
@@ -1232,24 +1809,76 @@
         return;
       }
 
-      globalState.folders.forEach(folder => {
-        const item = createElement('div', {
-          className: 'kimi-voyager-folder-item',
-          attributes: { 'data-folder-id': folder.id },
+      const renderFolder = (folder, depth = 0) => {
+        const isExpanded = !!folder.expanded;
+        const arrow = (folder.conversations?.length || folder.children?.length) ? (isExpanded ? '▼' : '▶') : '';
+
+        const convList = createElement('div', { className: 'folder-conv-list' });
+        const currentConvId = location.pathname.match(/\/chat\/([^/?#]+)/)?.[1] || '';
+        (folder.conversations || []).forEach((conv, index) => {
+          const isActive = currentConvId && conv.id === currentConvId;
+          const convItem = createElement('div', {
+            className: 'folder-conv-item' + (isActive ? ' active' : ''),
+            attributes: { 'data-conv-id': conv.id, 'data-index': index, draggable: 'true' },
+            events: {
+              dragstart: (e) => this.handleFolderConvDragStart(e, folder, conv, index),
+              dragend: () => this.handleFolderConvDragEnd(),
+              click: () => { window.location.href = `/chat/${conv.id}`; },
+              contextmenu: (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.showConvContextMenu(e, conv, folder);
+              }
+            },
+            children: [
+              createElement('span', { className: 'folder-conv-drag-handle', text: '⋮⋮' }),
+              createElement('span', { className: 'folder-conv-icon', text: '💬' }),
+              createElement('span', {
+                className: 'folder-conv-title',
+                text: conv.title || '未命名对话'
+              })
+            ]
+          });
+          convList.appendChild(convItem);
+        });
+
+        // Render child folders inside the content area
+        const childList = createElement('div', { className: 'folder-child-list' });
+        if (folder.children?.length > 0) {
+          folder.children.forEach(child => {
+            childList.appendChild(renderFolder(child, depth + 1));
+          });
+        }
+
+        const dropIndicator = createElement('div', { className: 'folder-drop-indicator' });
+        convList.appendChild(dropIndicator);
+
+        const contentArea = createElement('div', {
+          className: 'folder-content',
+          styles: { display: isExpanded ? 'block' : 'none', marginLeft: `${depth * 12}px` }
+        });
+        contentArea.appendChild(convList);
+        if (folder.children?.length > 0) {
+          contentArea.appendChild(childList);
+        }
+
+        contentArea.addEventListener('dragover', (e) => this.handleFolderContentDragOver(e, folder, contentArea));
+        contentArea.addEventListener('dragleave', (e) => this.handleFolderContentDragLeave(e, contentArea));
+        contentArea.addEventListener('drop', (e) => this.handleFolderContentDrop(e, folder, contentArea));
+
+        const header = createElement('div', {
+          className: 'folder-header',
+          styles: { paddingLeft: `${depth * 12}px` },
           events: {
-            dragover: (e) => {
+            click: () => this.toggleFolder(folder),
+            contextmenu: (e) => {
               e.preventDefault();
-              e.dataTransfer.dropEffect = 'move';
-              item.classList.add('drag-over');
-            },
-            dragenter: (e) => {
-              e.preventDefault();
-              item.classList.add('drag-over');
-            },
-            dragleave: () => item.classList.remove('drag-over'),
-            drop: (e) => this.handleDrop(e, folder, item)
+              e.stopPropagation();
+              this.showFolderContextMenu(e, folder);
+            }
           },
           children: [
+            createElement('span', { className: 'folder-arrow', text: arrow }),
             createElement('span', { className: 'folder-icon', text: '📁' }),
             createElement('span', { className: 'folder-name', text: folder.name }),
             createElement('span', {
@@ -1258,8 +1887,75 @@
             })
           ]
         });
-        list.appendChild(item);
+
+        const item = createElement('div', {
+          className: `kimi-voyager-folder-item${isExpanded ? ' expanded' : ''}`,
+          attributes: { 'data-folder-id': folder.id },
+          events: {
+            dragover: (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = 'move';
+              if (this._dragState?.type === 'conversation') {
+                const alreadyInFolder = folder.conversations?.some(c => c.id === this._dragState.id);
+                if (alreadyInFolder) {
+                  this._clearDropIndicator();
+                  return;
+                }
+              }
+              this._setDropIndicator(item, 'inside');
+            },
+            dragenter: (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (this._dragState?.type === 'conversation') {
+                const alreadyInFolder = folder.conversations?.some(c => c.id === this._dragState.id);
+                if (alreadyInFolder) return;
+              }
+              this._setDropIndicator(item, 'inside');
+            },
+            dragleave: (e) => {
+              e.stopPropagation();
+              if (!item.contains(e.relatedTarget)) {
+                this._clearDropIndicator();
+              }
+            },
+            drop: (e) => {
+              e.stopPropagation();
+              this.handleDrop(e, folder, item);
+            }
+          },
+          children: [header, contentArea]
+        });
+
+        return item;
+      };
+
+      globalState.folders.forEach(folder => {
+        list.appendChild(renderFolder(folder));
       });
+    }
+
+    updateActiveHighlights() {
+      if (!this.container) return;
+      const currentConvId = location.pathname.match(/\/chat\/([^/?#]+)/)?.[1] || '';
+      
+      // Update folder conversation items
+      this.container.querySelectorAll('.folder-conv-item').forEach(item => {
+        const convId = item.dataset.convId;
+        item.classList.toggle('active', !!(currentConvId && convId === currentConvId));
+      });
+      
+      // Update hidden history items
+      this.container.querySelectorAll('.hidden-history-item').forEach(item => {
+        const convId = item.dataset.convId;
+        item.classList.toggle('active', !!(currentConvId && convId === currentConvId));
+      });
+    }
+
+    toggleFolder(folder) {
+      folder.expanded = !folder.expanded;
+      this.renderFolders();
     }
 
     createFolder() {
@@ -1277,6 +1973,404 @@
       }
     }
 
+    showFolderMenu(event) {
+      event.stopPropagation();
+      document.querySelectorAll('.kimi-voyager-folder-menu').forEach(m => m.remove());
+
+      const menu = createElement('div', {
+        className: 'kimi-voyager-folder-menu',
+        styles: {
+          position: 'fixed',
+          left: `${event.clientX}px`,
+          top: `${event.clientY}px`,
+          zIndex: '999999'
+        },
+        children: [
+          createElement('div', {
+            className: 'menu-item',
+            text: '📥 导出文件夹到 JSON',
+            events: {
+              click: (e) => {
+                e.stopPropagation();
+                this.exportFolders();
+                menu.remove();
+              }
+            }
+          }),
+          createElement('div', {
+            className: 'menu-item',
+            text: '📤 从 JSON 导入文件夹',
+            events: {
+              click: (e) => {
+                e.stopPropagation();
+                this.importFolders();
+                menu.remove();
+              }
+            }
+          })
+        ]
+      });
+      document.body.appendChild(menu);
+
+      const closeMenu = (e) => {
+        if (!menu.contains(e.target)) {
+          menu.remove();
+          document.removeEventListener('mousedown', closeMenu, true);
+        }
+      };
+      requestAnimationFrame(() => {
+        document.addEventListener('mousedown', closeMenu, true);
+      });
+    }
+
+    exportFolders() {
+      try {
+        const data = JSON.stringify(globalState.folders, null, 2);
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `kimi-folders-${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('文件夹已导出', 'success');
+      } catch (err) {
+        console.error('导出失败:', err);
+        showToast('导出失败', 'error');
+      }
+    }
+
+    async importFolders() {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json,application/json';
+      input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const data = JSON.parse(text);
+          if (!Array.isArray(data)) {
+            showToast('文件格式错误：必须是文件夹数组', 'error');
+            return;
+          }
+          const action = confirm(
+            `检测到 ${data.length} 个文件夹。\n点击「确定」替换现有文件夹。\n点击「取消」合并到现有文件夹。`
+          );
+          if (action) {
+            globalState.folders = data;
+          } else {
+            globalState.folders = [...globalState.folders, ...data];
+          }
+          await globalState.saveFolders();
+          this.renderFolders();
+          showToast(`成功导入 ${data.length} 个文件夹`, 'success');
+        } catch (err) {
+          console.error('导入失败:', err);
+          showToast('导入失败：' + err.message, 'error');
+        }
+      };
+      input.click();
+    }
+
+    showFolderContextMenu(event, folder) {
+      event.preventDefault();
+      event.stopPropagation();
+      document.querySelectorAll('.kimi-voyager-context-menu').forEach(m => m.remove());
+
+      const removeMenu = () => {
+        menu.remove();
+        document.removeEventListener('mousedown', closeMenu, true);
+        document.removeEventListener('keydown', closeOnEsc, true);
+      };
+
+      const menu = createElement('div', {
+        className: 'kimi-voyager-context-menu',
+        styles: {
+          position: 'fixed',
+          left: `${event.clientX}px`,
+          top: `${event.clientY}px`,
+          zIndex: '999999'
+        },
+        children: [
+          createElement('div', {
+            className: 'menu-item',
+            text: '✏️ 重命名',
+            events: {
+              click: (e) => {
+                e.stopPropagation();
+                const newName = prompt('输入新名称:', folder.name);
+                if (newName && newName.trim() && newName !== folder.name) {
+                  folder.name = newName.trim();
+                  globalState.saveFolders();
+                  this.renderFolders();
+                }
+                removeMenu();
+              }
+            }
+          }),
+          createElement('div', {
+            className: 'menu-item',
+            text: '🎨 更改颜色',
+            events: {
+              click: (e) => {
+                e.stopPropagation();
+                const colors = ['#4f46e5', '#ef4444', '#f97316', '#10b981', '#3b82f6', '#8b5cf6'];
+                const currentIndex = colors.indexOf(folder.color);
+                folder.color = colors[(currentIndex + 1) % colors.length] || colors[0];
+                globalState.saveFolders();
+                this.renderFolders();
+                removeMenu();
+              }
+            }
+          }),
+          createElement('div', {
+            className: 'menu-item',
+            text: '📂 添加子文件夹',
+            events: {
+              click: (e) => {
+                e.stopPropagation();
+                const name = prompt('输入子文件夹名称:');
+                if (name && name.trim()) {
+                  folder.children = folder.children || [];
+                  folder.children.push({
+                    id: Date.now().toString(),
+                    name: name.trim(),
+                    icon: '📁',
+                    color: '#4f46e5',
+                    conversations: [],
+                    children: [],
+                    createdAt: Date.now()
+                  });
+                  globalState.saveFolders();
+                  this.renderFolders();
+                }
+                removeMenu();
+              }
+            }
+          }),
+          createElement('div', {
+            className: 'menu-item danger',
+            text: '🗑️ 删除',
+            events: {
+              click: (e) => {
+                e.stopPropagation();
+                if (confirm(`确定要删除文件夹 "${folder.name}" 吗？`)) {
+                  this.deleteFolder(folder);
+                }
+                removeMenu();
+              }
+            }
+          })
+        ]
+      });
+
+      document.body.appendChild(menu);
+      
+      const closeMenu = (e) => {
+        if (!menu.contains(e.target)) {
+          removeMenu();
+        }
+      };
+      const closeOnEsc = (e) => {
+        if (e.key === 'Escape') {
+          removeMenu();
+        }
+      };
+      
+      requestAnimationFrame(() => {
+        document.addEventListener('mousedown', closeMenu, true);
+        document.addEventListener('keydown', closeOnEsc, true);
+      });
+    }
+
+    showConvContextMenu(event, conv, folder) {
+      event.preventDefault();
+      event.stopPropagation();
+      document.querySelectorAll('.kimi-voyager-context-menu').forEach(m => m.remove());
+
+      const removeMenu = () => {
+        menu.remove();
+        document.removeEventListener('mousedown', closeMenu, true);
+        document.removeEventListener('keydown', closeOnEsc, true);
+      };
+
+      const menu = createElement('div', {
+        className: 'kimi-voyager-context-menu',
+        styles: {
+          position: 'fixed',
+          left: `${event.clientX}px`,
+          top: `${event.clientY}px`,
+          zIndex: '999999'
+        },
+        children: [
+          createElement('div', {
+            className: 'menu-item',
+            text: '❌ 从文件夹移除',
+            events: {
+              click: async (e) => {
+                e.stopPropagation();
+                folder.conversations = folder.conversations.filter(c => c.id !== conv.id);
+                try {
+                  await globalState.saveFolders();
+                  this.renderFolders();
+                  showToast('已从文件夹移除', 'success');
+                } catch (err) {
+                  console.error('移除对话失败:', err);
+                  showToast('移除失败，请重试', 'error');
+                }
+                removeMenu();
+              }
+            }
+          }),
+          createElement('div', {
+            className: 'menu-item',
+            text: '💬 打开对话',
+            events: {
+              click: (e) => {
+                e.stopPropagation();
+                window.location.href = `/chat/${conv.id}`;
+                removeMenu();
+              }
+            }
+          })
+        ]
+      });
+
+      document.body.appendChild(menu);
+
+      const closeMenu = (e) => {
+        if (!menu.contains(e.target)) {
+          removeMenu();
+        }
+      };
+      const closeOnEsc = (e) => {
+        if (e.key === 'Escape') {
+          removeMenu();
+        }
+      };
+
+      requestAnimationFrame(() => {
+        document.addEventListener('mousedown', closeMenu, true);
+        document.addEventListener('keydown', closeOnEsc, true);
+      });
+    }
+
+    async deleteFolder(folder) {
+      const removeRecursively = (folders, id) => {
+        const filtered = folders.filter(f => f.id !== id);
+        filtered.forEach(f => {
+          if (f.children) {
+            f.children = removeRecursively(f.children, id);
+          }
+        });
+        return filtered;
+      };
+      globalState.folders = removeRecursively(globalState.folders, folder.id);
+      await globalState.saveFolders();
+      this.renderFolders();
+      showToast('文件夹已删除', 'success');
+    }
+
+    processPendingInterceptedData() {
+      const pending = window.__kimiVoyagerInterceptedData;
+      if (!pending || !pending.length) return;
+      const newCount = pending.length - this.lastProcessedInterceptedIndex;
+      if (newCount <= 0) return;
+      console.log(`📡 Processing ${newCount} new intercepted data chunks (total: ${pending.length})`);
+      for (let i = this.lastProcessedInterceptedIndex; i < pending.length; i++) {
+        this.processInterceptedData(pending[i]);
+      }
+      this.lastProcessedInterceptedIndex = pending.length;
+    }
+    
+    processInterceptedData(data) {
+      if (!data || typeof data !== 'object') return;
+      // 宽松解析：覆盖多种嵌套格式
+      let convList = null;
+      const possibleRoots = [
+        data.conversations,
+        data.chats,
+        data.list,
+        data.items,
+        data.results,
+        data.data,
+        data.records,
+        data.rows,
+        data.history,
+        data.chatList,
+        data.conversationList,
+        data.conversation_list,
+        data.chat_list,
+        Array.isArray(data) ? data : null
+      ];
+      for (const root of possibleRoots) {
+        if (Array.isArray(root) && root.length > 0) {
+          convList = root;
+          break;
+        }
+      }
+      // 如果根是对象且 data.data 也是对象，尝试 data.data.xxx
+      if (!convList && data.data && typeof data.data === 'object') {
+        const nestedRoots = [
+          data.data.conversations,
+          data.data.chats,
+          data.data.list,
+          data.data.items,
+          data.data.results,
+          data.data.records,
+          data.data.rows,
+          data.data.history,
+          data.data.chatList,
+          data.data.conversationList
+        ];
+        for (const root of nestedRoots) {
+          if (Array.isArray(root) && root.length > 0) {
+            convList = root;
+            break;
+          }
+        }
+      }
+      if (!convList || !convList.length) return;
+      
+      const newConvs = [];
+      convList.forEach(conv => {
+        if (!conv || typeof conv !== 'object') return;
+        const id = conv.id || conv.chatId || conv.conversationId || conv.conversation_id || conv.chat_id || conv.conv_id || conv.convId;
+        const rawTitle = conv.title || conv.name || conv.subject || conv.topic || conv.summary || '';
+        const title = typeof rawTitle === 'string' ? rawTitle.trim() : String(rawTitle).trim();
+        if (!title) {
+          // 跳过空 title
+          return;
+        }
+        if (this.isValidConvId(id)) {
+          newConvs.push({
+            id,
+            title,
+            href: `/chat/${id}`,
+            updatedAt: conv.updatedAt || conv.updated_at || conv.createTime || conv.created_at || conv.timestamp || conv.time || Date.now()
+          });
+        } else {
+          // 跳过无效 ID
+        }
+      });
+      
+      if (newConvs.length > 0) {
+        // 拦截器解析完成
+        // 合并到 hiddenConversations
+        newConvs.forEach(nc => {
+          if (!this.hiddenConversations.find(c => c.id === nc.id)) {
+            this.hiddenConversations.push(nc);
+          }
+        });
+        this.hiddenConversations.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        this.historyLoaded = true;
+        this.renderHiddenHistory();
+        const countEl = this.container?.querySelector('.hidden-history-count');
+        if (countEl) countEl.textContent = `(${this.hiddenConversations.length})`;
+      }
+    }
+
     // ========== Hidden History ==========
     toggleHiddenHistory() {
       this.hiddenHistoryExpanded = !this.hiddenHistoryExpanded;
@@ -1287,7 +2381,8 @@
       if (this.hiddenHistoryExpanded) {
         content.style.display = 'block';
         arrow.textContent = '▼';
-        if (this.hiddenConversations.length === 0) {
+        // 如果未加载过，才执行加载
+        if (!this.historyLoaded && this.hiddenConversations.length === 0) {
           this.loadHiddenHistory();
         }
       } else {
@@ -1300,18 +2395,95 @@
       const content = this.container.querySelector('.kimi-voyager-hidden-history-content');
       content.innerHTML = '<div class="hidden-history-loading">加载中...</div>';
 
-      // 获取侧边栏已显示的对话
-      this.sidebarConvIds = this.getSidebarConversationIds();
-      
       // 尝试从页面数据获取所有历史对话
       const allConversations = await this.fetchAllConversations();
       
-      // 过滤掉已在侧边栏显示的（前5条）
-      this.hiddenConversations = allConversations.filter(conv => {
-        return !this.sidebarConvIds.has(conv.id);
-      });
+      // 显示所有对话，不再过滤侧边栏已显示的
+      this.hiddenConversations = allConversations;
+      if (allConversations.length > 0) {
+        this.historyLoaded = true;
+      }
 
       this.renderHiddenHistory();
+    }
+
+    async autoLoadHistory() {
+      // 延迟等待页面稳定
+      await new Promise(r => setTimeout(r, 2000));
+      
+      const content = this.container?.querySelector('.kimi-voyager-hidden-history-content');
+      if (!content) return;
+      
+      // 避免重复加载（但允许在历史页面多次尝试）
+      if (this.historyLoaded && this.hiddenConversations.length > 0 && !location.pathname.includes('/chat/history')) return;
+      
+      if (!this.historyLoaded || this.hiddenConversations.length === 0) {
+        content.innerHTML = '<div class="hidden-history-loading">正在加载历史对话...</div>';
+      }
+      
+      try {
+        // 在历史页面尝试点击"查看全部"以触发更多数据加载
+        if (location.pathname.includes('/chat/history')) {
+          await this.triggerLoadMoreOnHistoryPage();
+        }
+        
+        const allConversations = await this.fetchAllConversations();
+        // autoLoadHistory 完成
+        
+        if (allConversations.length > 0) {
+          // 合并而不是直接覆盖，保留已有的
+          allConversations.forEach(ac => {
+            if (!this.hiddenConversations.find(c => c.id === ac.id)) {
+              this.hiddenConversations.push(ac);
+            }
+          });
+          this.hiddenConversations.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+          this.historyLoaded = true;
+          this.renderHiddenHistory();
+          const countEl = this.container.querySelector('.hidden-history-count');
+          if (countEl) countEl.textContent = `(${this.hiddenConversations.length})`;
+        } else if (this.hiddenConversations.length === 0) {
+          content.innerHTML = '<div class="hidden-history-empty">暂无更多历史对话</div>';
+        }
+        
+        // 在历史页面进行多次尝试
+        this.autoLoadAttempts++;
+        if (location.pathname.includes('/chat/history') && this.autoLoadAttempts < 5) {
+          // 历史页面重试加载
+          setTimeout(() => this.autoLoadHistory(), 3000);
+        }
+      } catch (e) {
+        console.error('自动加载历史对话失败:', e);
+        if (this.hiddenConversations.length === 0) {
+          content.innerHTML = '<div class="hidden-history-error">加载失败，请稍后重试</div>';
+        }
+      }
+    }
+
+    // 尝试从历史页面点击"查看全部"等按钮触发更多数据加载
+    async triggerLoadMoreOnHistoryPage() {
+      if (!location.pathname.includes('/chat/history')) return false;
+      const btnTexts = ['查看全部', '全部对话', '所有对话', '查看更多', 'load more', 'view all'];
+      const buttons = Array.from(document.querySelectorAll('button, a, [role="button"], div'));
+      for (const btn of buttons) {
+        const text = (btn.textContent || btn.innerText || '').trim();
+        if (btnTexts.some(t => text.toLowerCase().includes(t.toLowerCase()))) {
+          // 点击加载更多按钮
+          btn.click();
+          await new Promise(r => setTimeout(r, 1500));
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // 持续监听拦截数据的新数据
+    startInterceptedDataPolling() {
+      if (this.interceptedDataPollInterval) return;
+      this.interceptedDataPollInterval = setInterval(() => {
+        this.processPendingInterceptedData();
+      }, 2000);
+      // 拦截器轮询已启动
     }
 
     getSidebarConversationIds() {
@@ -1328,93 +2500,394 @@
       return ids;
     }
 
+    isValidConvId(id) {
+      if (!id || typeof id !== 'string') return false;
+      // Kimi 对话 ID 有两种格式：
+      // 1. 旧版：纯字母数字随机字符串，如 cuq3h25m2citjh45prb0（长度 20~22）
+      // 2. 新版：UUID，如 19d93c55-c012-8dc5-8000-09b5cda1e7ae（长度 36）
+      if (id.length < 10 || id.length > 40) return false;
+      if (!/^[a-zA-Z0-9-]+$/.test(id)) return false;
+      // 排除常见的非对话 ID
+      const blacklist = ['history', 'settings', 'profile', 'account', 'login', 'logout', 'signup', 'admin', 'api', 'test', 'undefined', 'null'];
+      const lowerId = id.toLowerCase();
+      if (blacklist.some(b => lowerId.includes(b))) return false;
+      return true;
+    }
+
+    async fetchHistoryFromPageHTML() {
+      console.log('[fetchHistoryFromPageHTML] 方法入口');
+      const conversations = [];
+      const seenIds = new Set();
+      const addConv = (id, title, href, updatedAt) => {
+        if (!id || !this.isValidConvId(id) || seenIds.has(id) || !title) return false;
+        seenIds.add(id);
+        conversations.push({ id, title, href, updatedAt: updatedAt || Date.now() });
+        return true;
+      };
+
+      const extractFromLinks = (links, sourceName) => {
+        let found = 0;
+        for (const link of links) {
+          let id = link.getAttribute('data-conv-id') || '';
+          let title = (link.getAttribute('data-conv-title') || '').trim();
+          const href = link.getAttribute('href') || '';
+          if (!id) {
+            const idMatch = href.match(/\/chat\/([^/?#]+)/);
+            if (idMatch) id = idMatch[1];
+          }
+          if (!title) {
+            title = (link.textContent || '').trim().split('\n')[0] || '';
+          }
+          const excludeTexts = ['查看全部', '全部对话', '所有对话', '查看更多', 'view all', 'history'];
+          if (!title || excludeTexts.some(t => title.toLowerCase().includes(t.toLowerCase()))) continue;
+          if (addConv(id, title, href || `/chat/${id}`)) found++;
+        }
+        return found;
+      };
+
+      const parseHtmlConversations = (html, sourceName) => {
+        if (!html) return;
+        const scriptMatches = html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi);
+        for (const scriptMatch of scriptMatches) {
+          const scriptContent = scriptMatch[1];
+          const statePatterns = [
+            /window\.__INITIAL_STATE__\s*=\s*([\s\S]*?);?\s*(?=<\/script>|$)/i,
+            /window\.__DATA__\s*=\s*([\s\S]*?);?\s*(?=<\/script>|$)/i,
+            /window\.__APP__\s*=\s*([\s\S]*?);?\s*(?=<\/script>|$)/i,
+            /window\._KIMI_DATA\s*=\s*([\s\S]*?);?\s*(?=<\/script>|$)/i,
+            /window\.kimiData\s*=\s*([\s\S]*?);?\s*(?=<\/script>|$)/i
+          ];
+          for (const pattern of statePatterns) {
+            const stateMatch = scriptContent.match(pattern);
+            if (stateMatch) {
+              try {
+                const data = JSON.parse(stateMatch[1]);
+                const allArrays = [
+                  data.conversations, data.chats, data.chatList, data.conversationList,
+                  data.history, data.list, data.items, data.results, data.records, data.rows,
+                  data.data?.conversations, data.data?.chats, data.data?.chatList,
+                  data.data?.conversationList, data.data?.history, data.data?.list,
+                  data.data?.items, data.data?.results, data.data?.records,
+                  Array.isArray(data) ? data : null
+                ];
+                for (const arr of allArrays) {
+                  if (!Array.isArray(arr)) continue;
+                  arr.forEach(conv => {
+                    if (!conv || typeof conv !== 'object') return;
+                    const id = conv.id || conv.chatId || conv.conversationId || conv.conversation_id || conv.chat_id || conv.conv_id || conv.convId;
+                    const rawTitle = conv.title || conv.name || conv.subject || conv.topic || conv.summary || '';
+                    const title = typeof rawTitle === 'string' ? rawTitle.trim() : String(rawTitle).trim();
+                    if (title) addConv(id, title, `/chat/${id}`, conv.updatedAt || conv.updated_at || conv.createTime || conv.created_at || conv.timestamp || conv.time);
+                  });
+                }
+              } catch (e) {}
+            }
+          }
+        }
+        if (typeof DOMParser !== 'undefined') {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(html, 'text/html');
+          const links = doc.querySelectorAll('a[href*="/chat/"]');
+          extractFromLinks(links, sourceName);
+        }
+      };
+
+      const hasConvData = (html) => html && (html.includes('data-conv-id') || html.includes('history-link') || /\/chat\/[a-zA-Z0-9-]{10,40}/.test(html));
+
+      try {
+        // 策略 A
+        console.log('[fetchHistoryFromPageHTML] 策略A: 检查是否在历史页面');
+        if (location.pathname.includes('/chat/history')) {
+          console.log('[fetchHistoryFromPageHTML] 策略A: 在历史页面，读取当前 DOM');
+          const currentHtml = document.documentElement.outerHTML;
+          parseHtmlConversations(currentHtml, '当前页面DOM');
+          console.log('[fetchHistoryFromPageHTML] 策略A: 完成，获取到', conversations.length, '条');
+          return conversations;
+        }
+        console.log('[fetchHistoryFromPageHTML] 策略A: 不在历史页面，继续尝试其他策略');
+
+        let html = '';
+
+        // B3: 使用 access_token Bearer 调用 ListChats API
+        console.log('[fetchHistoryFromPageHTML] 策略B3: access_token Bearer 调用 ListChats API');
+        try {
+          const possibleTokens = [];
+          for (const store of [localStorage, sessionStorage]) {
+            for (let i = 0; i < store.length; i++) {
+              const key = store.key(i);
+              const val = store.getItem(key);
+              if (key && val && val.length >= 20 && val.length <= 2000) {
+                const lowerKey = key.toLowerCase();
+                if (lowerKey.includes('access_token')) {
+                  possibleTokens.push({ key, val });
+                }
+              }
+            }
+          }
+          console.log('[fetchHistoryFromPageHTML] 策略B3: 扫描到', possibleTokens.length, '个可能的 token');
+
+          const apiUrl = 'https://www.kimi.com/apiv2/kimi.chat.v1.ChatService/ListChats';
+          for (const token of possibleTokens) {
+            try {
+              const resp = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token.val}`
+                },
+                body: JSON.stringify({})
+              });
+              if (resp.ok) {
+                const data = await resp.json();
+                console.log(`[fetchHistoryFromPageHTML] 策略B3: Bearer API成功, key=${token.key}`);
+                const possibleArrays = [
+                  data.chats, data.conversations, data.chatList, data.conversationList,
+                  data.history, data.list, data.items, data.results, data.records, data.rows,
+                  Array.isArray(data) ? data : null
+                ];
+                for (const arr of possibleArrays) {
+                  if (!Array.isArray(arr)) continue;
+                  for (const conv of arr) {
+                    if (!conv || typeof conv !== 'object') continue;
+                    const id = conv.id || conv.chatId || conv.conversationId || conv.conversation_id || conv.chat_id || conv.conv_id || conv.convId;
+                    const rawTitle = conv.title || conv.name || conv.subject || conv.topic || conv.summary || '';
+                    const title = typeof rawTitle === 'string' ? rawTitle.trim() : String(rawTitle).trim();
+                    if (title && this.isValidConvId(id) && !seenIds.has(id)) {
+                      seenIds.add(id);
+                      conversations.push({
+                        id,
+                        title,
+                        href: `/chat/${id}`,
+                        updatedAt: conv.updatedAt || conv.updateTime || conv.updated_at || conv.createTime || conv.created_at || conv.timestamp || conv.time || Date.now()
+                      });
+                    }
+                  }
+                }
+                if (conversations.length > 0) {
+                  console.log('[fetchHistoryFromPageHTML] 策略B3: 成功，获取到', conversations.length, '条');
+                  return conversations;
+                }
+              }
+            } catch (e) {}
+          }
+          console.log('[fetchHistoryFromPageHTML] 策略B3: 所有 Bearer token 尝试都失败');
+        } catch (e) {
+          console.log('[fetchHistoryFromPageHTML] 策略B3: 异常', e.message);
+        }
+
+      } catch (error) {
+        console.log('[fetchHistoryFromPageHTML] 外层异常', error.message);
+      }
+      console.log('[fetchHistoryFromPageHTML] 所有策略都失败，最终返回', conversations.length, '条');
+      return conversations;
+    }
+
     async fetchAllConversations() {
       const conversations = [];
+      // 开始获取对话
       
-      // 方法1: 尝试从 API 获取完整历史
-      try {
-        const response = await fetch('/chat/history', {
-          method: 'GET',
-          headers: { 
-            'Accept': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest'
-          },
-          credentials: 'same-origin'
-        });
+      // 辅助函数：从任意对象中提取对话列表（宽松解析）
+      const extractConversations = (source, sourceName) => {
+        let found = 0;
+        if (!source || typeof source !== 'object') return 0;
         
-        if (response.ok) {
-          const data = await response.json();
-          console.log('📜 /chat/history API 返回:', data);
-          
-          // 处理不同可能的返回格式
-          const convList = data.conversations || data.chats || data.list || data.data || (Array.isArray(data) ? data : []);
-          
-          convList.forEach(conv => {
-            const id = conv.id || conv.chatId || conv.conversationId;
-            const title = conv.title || conv.name || conv.subject || '未命名对话';
-            if (id && !conversations.find(c => c.id === id)) {
+        // 尝试多种可能的数组字段
+        const possibleArrays = [
+          source.conversations,
+          source.chats,
+          source.chatList,
+          source.conversationList,
+          source.history,
+          source.list,
+          source.items,
+          source.results,
+          source.records,
+          source.rows,
+          Array.isArray(source) ? source : null
+        ];
+        
+        for (const arr of possibleArrays) {
+          if (!Array.isArray(arr)) continue;
+          arr.forEach(conv => {
+            if (!conv || typeof conv !== 'object') return;
+            const id = conv.id || conv.chatId || conv.conversationId || conv.conversation_id || conv.chat_id || conv.conv_id || conv.convId;
+            const rawTitle = conv.title || conv.name || conv.subject || conv.topic || conv.summary || '';
+            const title = typeof rawTitle === 'string' ? rawTitle.trim() : String(rawTitle).trim();
+            if (!title) {
+              // 跳过空 title
+              return;
+            }
+            if (!this.isValidConvId(id)) {
+              // 跳过无效 ID
+              return;
+            }
+            if (!conversations.find(c => c.id === id)) {
               conversations.push({
                 id,
                 title,
                 href: `/chat/${id}`,
-                updatedAt: conv.updatedAt || conv.createTime || Date.now()
+                updatedAt: conv.updatedAt || conv.updated_at || conv.createTime || conv.created_at || conv.timestamp || conv.time || Date.now()
               });
+              found++;
             }
           });
-          
-          if (conversations.length > 0) {
-            console.log(`📜 从 API 获取了 ${conversations.length} 条对话`);
-            return conversations;
+        }
+        
+        // 如果直接字段没找到，尝试嵌套的 data 字段
+        if (found === 0 && source.data && typeof source.data === 'object') {
+          const nestedArrays = [
+            source.data.conversations,
+            source.data.chats,
+            source.data.chatList,
+            source.data.conversationList,
+            source.data.history,
+            source.data.list,
+            source.data.items,
+            source.data.results,
+            source.data.records
+          ];
+          for (const arr of nestedArrays) {
+            if (!Array.isArray(arr)) continue;
+            arr.forEach(conv => {
+              if (!conv || typeof conv !== 'object') return;
+              const id = conv.id || conv.chatId || conv.conversationId || conv.conversation_id || conv.chat_id || conv.conv_id || conv.convId;
+              const rawTitle = conv.title || conv.name || conv.subject || conv.topic || conv.summary || '';
+              const title = typeof rawTitle === 'string' ? rawTitle.trim() : String(rawTitle).trim();
+              if (!title) {
+                // 跳过空 title
+                return;
+              }
+              if (!this.isValidConvId(id)) {
+                // 跳过无效 ID
+                return;
+              }
+              if (!conversations.find(c => c.id === id)) {
+                conversations.push({
+                  id,
+                  title,
+                  href: `/chat/${id}`,
+                  updatedAt: conv.updatedAt || conv.updated_at || conv.createTime || conv.created_at || conv.timestamp || conv.time || Date.now()
+                });
+                found++;
+              }
+            });
+          }
+        }
+        
+        if (found > 0) {
+          // 从来源获取完成
+        }
+        return found;
+      };
+      
+      // 方法1: 主动抓取 /chat/history 页面 HTML（最可靠，能拿到全部）
+      try {
+        const htmlConvs = await this.fetchHistoryFromPageHTML();
+        if (htmlConvs && htmlConvs.length > 0) {
+          htmlConvs.forEach(conv => {
+            if (!conversations.find(c => c.id === conv.id)) {
+              conversations.push(conv);
+            }
+          });
+          // 从 HTML 获取完成
+        }
+      } catch (e) {
+        // HTML 抓取失败
+      }
+
+      // 方法2: 从全局拦截器获取（Kimi 页面自己请求的 API 数据）
+      try {
+        const pending = window.__kimiVoyagerInterceptedData;
+        if (pending && pending.length > 0) {
+          let foundFromIntercept = 0;
+          for (let i = 0; i < pending.length; i++) {
+            foundFromIntercept += extractConversations(pending[i], `拦截器[${i}]`);
+          }
+          if (foundFromIntercept > 0) {
+            // 从拦截器获取完成
           }
         }
       } catch (e) {
-        console.log('📜 /chat/history API 请求失败:', e.message);
+        // 拦截器获取失败
       }
-      
-      // 方法2: 尝试从 localStorage 获取
-      try {
-        const keys = Object.keys(localStorage);
-        keys.forEach(key => {
-          if (key.includes('chat') || key.includes('conversation') || key.includes('history')) {
-            try {
-              const data = JSON.parse(localStorage.getItem(key));
-              if (Array.isArray(data)) {
-                data.forEach(conv => {
-                  const id = conv.id || conv.chatId || conv.conversationId;
-                  const title = conv.title || conv.name || conv.subject || '未命名对话';
-                  if (id && !conversations.find(c => c.id === id)) {
-                    conversations.push({ id, title, href: `/chat/${id}` });
-                  }
-                });
-              } else if (data && typeof data === 'object') {
-                // 可能是对象格式
-                Object.values(data).forEach(conv => {
-                  const id = conv?.id || conv?.chatId;
-                  const title = conv?.title || conv?.name || '未命名对话';
-                  if (id && !conversations.find(c => c.id === id)) {
-                    conversations.push({ id, title, href: `/chat/${id}` });
-                  }
-                });
-              }
-            } catch (e) {}
-          }
-        });
-      } catch (e) {}
 
-      // 方法3: 从页面链接获取
-      document.querySelectorAll('a[href*="/chat/"]').forEach(link => {
-        const href = link.getAttribute('href') || '';
-        const match = href.match(/\/chat\/([^/?#]+)/);
-        if (match) {
-          const id = match[1];
-          if (id.length > 5 && !conversations.find(c => c.id === id)) { // 过滤掉短ID（可能是路由）
-            const title = link.textContent.trim().split('\n')[0] || '未命名对话';
-            conversations.push({ id, title, href });
+      // 方法3: 从页面全局变量获取（Kimi 可能把数据挂在 window 上）
+      try {
+        const globalKeys = ['__INITIAL_STATE__', '__DATA__', '__APP__', '__config', '_KIMI_DATA', 'kimiData', '__SERVER_DATA__', '__INITIAL_PROPS__'];
+        for (const gk of globalKeys) {
+          const globalData = window[gk];
+          if (globalData) {
+            const found = extractConversations(globalData, `window.${gk}`);
+            if (found > 0) {
+              // 从全局变量获取完成
+            }
           }
         }
-      });
+      } catch (e) {
+        // 全局变量获取失败
+      }
 
-      console.log(`📜 共获取 ${conversations.length} 条对话`);
+      // 方法4: 尝试从 localStorage 获取（限制扫描数量和大小）
+      try {
+        const keys = Object.keys(localStorage);
+        let scanned = 0;
+        for (const key of keys) {
+          if (key.includes('chat') || key.includes('conversation') || key.includes('history') || key.includes('kimi')) {
+            try {
+              const raw = localStorage.getItem(key);
+              if (!raw || raw.length > 500000) continue;
+              const data = JSON.parse(raw);
+              extractConversations(data, `localStorage.${key}`);
+            } catch (e) {}
+          }
+          scanned++;
+          if (scanned > 50) break;
+        }
+      } catch (e) {}
+
+      // 方法5: 从当前页面链接获取（限制数量，过滤非对话项）
+      try {
+        const links = document.querySelectorAll('a[href*="/chat/"]');
+        let count = 0;
+        let foundFromLinks = 0;
+        for (const link of links) {
+          // 优先使用 data-conv-id / data-conv-title
+          let id = link.getAttribute('data-conv-id') || '';
+          let title = (link.getAttribute('data-conv-title') || '').trim();
+          let href = link.getAttribute('href') || '';
+          
+          if (!id) {
+            const match = href.match(/\/chat\/([^/?#]+)/);
+            if (match) id = match[1];
+          }
+          if (!title) {
+            title = (link.textContent || '').trim().split('\n')[0] || '';
+          }
+          
+          if (!id || !this.isValidConvId(id)) {
+            // 链接 ID 无效
+            continue;
+          }
+          if (!title) {
+            // 链接 title 为空
+            continue;
+          }
+          const excludeTexts = ['查看全部', '全部对话', '所有对话', '查看更多', 'view all'];
+          if (excludeTexts.some(t => title.toLowerCase().includes(t.toLowerCase()))) continue;
+
+          if (!conversations.find(c => c.id === id)) {
+            conversations.push({ id, title, href });
+            foundFromLinks++;
+          }
+          count++;
+          if (count > 200) break;
+        }
+        if (foundFromLinks > 0) {
+          // 从页面链接获取完成
+        }
+      } catch (e) {}
+
+      // fetchAllConversations 完成
       return conversations;
     }
 
@@ -1424,39 +2897,107 @@
 
       if (this.hiddenConversations.length === 0) {
         content.innerHTML = '<div class="hidden-history-empty">暂无更多历史对话</div>';
+        const countEl = this.container.querySelector('.hidden-history-count');
+        if (countEl) countEl.textContent = '(0)';
         return;
       }
 
       const list = createElement('div', { className: 'hidden-history-list' });
+      const MAX_BATCH = 100;
+      const total = this.hiddenConversations.length;
 
-      this.hiddenConversations.forEach(conv => {
-        const item = createElement('div', {
-          className: 'hidden-history-item',
-          attributes: { 'data-conv-id': conv.id, draggable: 'true' },
-          events: {
-            click: () => { window.location.href = conv.href; },
-            contextmenu: (e) => this.showHiddenConvContextMenu(e, conv),
-            dragstart: (e) => {
-              e.dataTransfer.setData('application/json', JSON.stringify({
-                type: 'conversation', id: conv.id, title: conv.title
-              }));
-              e.dataTransfer.effectAllowed = 'move';
-              item.style.opacity = '0.5';
+      const renderBatch = (start, count) => {
+        const end = Math.min(start + count, total);
+        const fragment = document.createDocumentFragment();
+        
+        const currentConvId = location.pathname.match(/\/chat\/([^/?#]+)/)?.[1] || '';
+        
+        for (let i = start; i < end; i++) {
+          const conv = this.hiddenConversations[i];
+          const isActive = currentConvId && conv.id === currentConvId;
+          const item = createElement('div', {
+            className: `hidden-history-item ${isActive ? 'active' : ''}`,
+            attributes: { 'data-conv-id': conv.id },
+            events: {
+              click: () => { window.location.href = conv.href; },
+              contextmenu: (e) => this.showHiddenConvContextMenu(e, conv),
+              mousedown: (e) => {
+                // 长按触发拖拽
+                if (e.button !== 0) return;
+                let timer = setTimeout(() => {
+                  item.draggable = true;
+                }, 400);
+                const clearTimer = () => {
+                  clearTimeout(timer);
+                  window.removeEventListener('mouseup', clearTimer);
+                };
+                window.addEventListener('mouseup', clearTimer, { once: true });
+              },
+              dragstart: (e) => {
+                if (!item.draggable) {
+                  e.preventDefault();
+                  return;
+                }
+                this._dragState = {
+                  type: 'conversation',
+                  id: conv.id,
+                  title: conv.title,
+                  sourceEl: item
+                };
+                e.dataTransfer.setData('application/json', JSON.stringify({
+                  type: 'conversation', id: conv.id, title: conv.title
+                }));
+                e.dataTransfer.effectAllowed = 'move';
+                item.classList.add('dragging');
+                item.style.opacity = '0.4';
+                item.style.transition = 'opacity 0.15s';
+              },
+              dragend: () => {
+                item.draggable = false;
+                this._cleanupDrag();
+              }
             },
-            dragend: () => { item.style.opacity = '1'; }
-          },
-          children: [
-            createElement('span', { className: 'hidden-history-item-icon', text: '💬' }),
-            createElement('span', {
-              className: 'hidden-history-item-title',
-              text: conv.title
-            })
-          ]
-        });
-        list.appendChild(item);
-      });
+            children: [
+              createElement('span', { className: 'hidden-history-drag-handle', text: '⋮⋮' }),
+              createElement('span', { className: 'hidden-history-item-icon', text: '💬' }),
+              createElement('span', {
+                className: 'hidden-history-item-title',
+                text: conv.title
+              })
+            ]
+          });
+          fragment.appendChild(item);
+        }
+        
+        list.appendChild(fragment);
+        
+        // 如果还有更多，显示加载更多按钮
+        if (end < total) {
+          const existingLoadMore = content.querySelector('.hidden-history-load-more');
+          if (existingLoadMore) existingLoadMore.remove();
+          
+          const loadMore = createElement('div', {
+            className: 'hidden-history-load-more',
+            text: `加载更多 (${total - end})`,
+            events: {
+              click: () => {
+                loadMore.textContent = '加载中...';
+                requestAnimationFrame(() => {
+                  renderBatch(end, MAX_BATCH);
+                  loadMore.remove();
+                });
+              }
+            }
+          });
+          content.appendChild(loadMore);
+        }
+      };
 
       content.appendChild(list);
+      renderBatch(0, MAX_BATCH);
+      
+      const countEl = this.container.querySelector('.hidden-history-count');
+      if (countEl) countEl.textContent = `(${total})`;
     }
 
     showHiddenConvContextMenu(event, conv) {
@@ -1478,8 +3019,8 @@
             text: `📁 ${folder.name}`,
             events: {
               click: () => {
-                if (globalState.addConversationToFolder(conv.id, conv.title, folder.id)) {
-                  showToast(`已添加到 "${folder.name}"`, 'success');
+                if (globalState.moveConversationToFolder(conv.id, conv.title, folder.id)) {
+                  showToast(`已移动到 "${folder.name}"`, 'success');
                   this.renderFolders();
                 } else {
                   showToast('该对话已在文件夹中', 'info');
@@ -1534,12 +3075,61 @@
         });
       }
 
-      setTimeout(() => {
-        document.addEventListener('click', function closeMenu() {
+      // 使用 mousedown + capture 确保点击外部一定能关闭
+      const closeMenu = (e) => {
+        if (!menu.contains(e.target)) {
           menu.remove();
-          document.removeEventListener('click', closeMenu);
-        });
-      }, 0);
+          document.removeEventListener('mousedown', closeMenu, true);
+          document.removeEventListener('keydown', closeOnEsc, true);
+        }
+      };
+      const closeOnEsc = (e) => {
+        if (e.key === 'Escape') {
+          menu.remove();
+          document.removeEventListener('mousedown', closeMenu, true);
+          document.removeEventListener('keydown', closeOnEsc, true);
+        }
+      };
+      requestAnimationFrame(() => {
+        document.addEventListener('mousedown', closeMenu, true);
+        document.addEventListener('keydown', closeOnEsc, true);
+      });
+    }
+
+    // ========== Drop Indicator Helpers ==========
+    _setDropIndicator(el, position) {
+      if (this._currentDropTarget === el && this._dropPosition === position) return;
+      this._clearDropIndicator();
+      this._currentDropTarget = el;
+      this._dropPosition = position;
+      if (position === 'inside') {
+        el.classList.add('drag-over');
+      } else if (position === 'before') {
+        el.classList.add('drop-before');
+      } else if (position === 'after') {
+        el.classList.add('drop-after');
+      }
+    }
+
+    _clearDropIndicator() {
+      if (this._currentDropTarget) {
+        this._currentDropTarget.classList.remove('drag-over', 'drop-before', 'drop-after');
+        this._currentDropTarget = null;
+        this._dropPosition = null;
+      }
+    }
+
+    _cleanupDrag() {
+      if (this._dragState?.sourceEl) {
+        this._dragState.sourceEl.classList.remove('dragging');
+        this._dragState.sourceEl.style.opacity = '';
+        this._dragState.sourceEl.style.transition = '';
+      }
+      this._dragState = null;
+      this._clearDropIndicator();
+      document.querySelectorAll('.kimi-voyager-folder-item.drag-over, .kimi-voyager-folder-item.drop-before, .kimi-voyager-folder-item.drop-after').forEach(el => {
+        el.classList.remove('drag-over', 'drop-before', 'drop-after');
+      });
     }
 
     // ========== Drag & Drop ==========
@@ -1547,27 +3137,37 @@
       let lastChatCount = 0;
       
       const makeItemsDraggable = () => {
+        // 在历史对话页不注入收藏按钮，避免干扰编辑标题
+        const isHistoryPage = location.pathname.includes('/chat/history');
+        
         // 查找所有可能包含对话的容器
         const containers = document.querySelectorAll('.sidebar, [class*="sidebar"], aside, nav, [class*="history"], [class*="chat-list"]');
         
         containers.forEach(container => {
-          // 查找对话项 - 使用更广泛的选择器
-          const chatItems = container.querySelectorAll('a[href*="/chat/"], [class*="chat-item"], [class*="conversation-item"], [data-conv-id]');
+          // 跳过 Voyager 自己的容器
+          if (container.closest('.kimi-voyager-folders')) return;
+          
+          // 查找对话项
+          const chatItems = container.querySelectorAll('a[href*="/chat/"], [class*="chat-item"], [class*="conversation-item"], [class*="chat-info"], [data-conv-id], [data-chat-id]');
           
           chatItems.forEach(item => {
             if (item.dataset.voyagerDraggable === 'true') return;
+            if (item.closest('.kimi-voyager-folders, .kimi-voyager-folder-selector, .kimi-voyager-context-menu')) return;
             
-            // 确保 item 有 href 或 data-conv-id
             const href = item.getAttribute('href') || '';
-            const convId = item.dataset.convId || (href.match(/\/chat\/([^/?#]+)/) ? href.match(/\/chat\/([^/?#]+)/)[1] : '');
+            const convId = item.dataset.convId || item.dataset.chatId || (href.match(/\/chat\/([^/?#]+)/) ? href.match(/\/chat\/([^/?#]+)/)[1] : '');
             if (!convId) return;
+            
+            const text = item.textContent.trim();
+            const excludeTexts = ['查看全部', '全部对话', '所有对话', '查看更多', 'view all', 'load more'];
+            if (excludeTexts.some(t => text.toLowerCase().includes(t.toLowerCase()))) return;
+            if (href === '/chat' || href === '/chat/' || href.endsWith('/chat/')) return;
             
             item.dataset.voyagerDraggable = 'true';
             item.dataset.convId = convId;
-            item.draggable = true;
+            item.draggable = false; // Disable native drag; rely on long-press custom drag
             item.style.cursor = 'grab';
             
-            // 提取标题
             let title = '';
             const titleSelectors = ['.chat-name', '[class*="chat-name"]', '.title', '[class*="title"]', '.name', '[class*="name"]'];
             for (const sel of titleSelectors) {
@@ -1577,53 +3177,10 @@
             if (!title) title = item.textContent.trim().split('\n')[0] || convId;
             item.dataset.convTitle = title;
             
-            // 添加拖拽手柄（小圆点）
-            if (!item.querySelector('.voyager-drag-handle')) {
-              const handle = createElement('div', {
-                className: 'voyager-drag-handle',
-                title: '拖拽到文件夹收藏',
-                styles: {
-                  position: 'absolute',
-                  left: '2px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  width: '4px',
-                  height: '20px',
-                  background: 'rgba(79, 70, 229, 0.3)',
-                  borderRadius: '2px',
-                  cursor: 'grab',
-                  opacity: '0',
-                  transition: 'opacity 0.2s',
-                  zIndex: '10'
-                }
-              });
-              item.style.position = 'relative';
-              item.appendChild(handle);
-              
-              item.addEventListener('mouseenter', () => { handle.style.opacity = '1'; });
-              item.addEventListener('mouseleave', () => { handle.style.opacity = '0'; });
+            // 添加收藏按钮（排除历史对话页和文件夹内部）
+            if (!isHistoryPage && !item.closest('.kimi-voyager-folders')) {
+              this.addFavoriteButton(item, convId, title);
             }
-            
-            item.addEventListener('dragstart', (e) => {
-              e.dataTransfer.setData('application/json', JSON.stringify({
-                type: 'conversation', id: convId, title
-              }));
-              e.dataTransfer.effectAllowed = 'move';
-              item.style.opacity = '0.6';
-              item.classList.add('dragging');
-              console.log('📁 Drag started:', title);
-            });
-            
-            item.addEventListener('dragend', () => {
-              item.style.opacity = '1';
-              item.classList.remove('dragging');
-              document.querySelectorAll('.kimi-voyager-folder-item.drag-over').forEach(el => {
-                el.classList.remove('drag-over');
-              });
-            });
-            
-            // 为每个对话项添加收藏按钮（省略号菜单旁）
-            this.addFavoriteButton(item, convId, title);
           });
           
           lastChatCount += chatItems.length;
@@ -1631,12 +3188,120 @@
       };
       
       makeItemsDraggable();
-      this.dragDropInterval = setInterval(makeItemsDraggable, 2000);
+      this.dragDropInterval = setInterval(makeItemsDraggable, 3000);
+    }
+
+    // ========== Global Long-Press Drag (works on any chat item) ==========
+    setupGlobalLongPressDrag() {
+      if (this._globalDragBound) return;
+      this._globalDragBound = true;
+      
+      let lpTimer = null;
+      let lpStartX = 0;
+      let lpStartY = 0;
+      let lpConvId = null;
+      let lpTitle = null;
+      
+      const clearLp = () => {
+        if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+      };
+      
+      const getConvInfo = (target) => {
+        const item = target.closest('a[href*="/chat/"], [class*="chat-item"], [class*="conversation-item"], [class*="chat-info"], [data-conv-id], [data-chat-id]');
+        if (!item || item.closest('.kimi-voyager-folders, .kimi-voyager-folder-selector, .kimi-voyager-context-menu')) return null;
+        
+        const href = item.getAttribute('href') || '';
+        const convId = item.dataset.convId || item.dataset.chatId || (href.match(/\/chat\/([^/?#]+)/)?.[1]);
+        if (!convId || !this.isValidConvId(convId)) return null;
+        
+        const text = item.textContent.trim();
+        const excludeTexts = ['查看全部', '全部对话', '所有对话', '查看更多', 'view all', 'load more'];
+        if (excludeTexts.some(t => text.toLowerCase().includes(t.toLowerCase()))) return null;
+        if (href === '/chat' || href === '/chat/' || href.endsWith('/chat/')) return null;
+        
+        let title = '';
+        const titleSelectors = ['.chat-name', '[class*="chat-name"]', '.title', '[class*="title"]', '.name', '[class*="name"]'];
+        for (const sel of titleSelectors) {
+          const titleEl = item.querySelector(sel);
+          if (titleEl) { title = titleEl.textContent.trim(); break; }
+        }
+        if (!title) title = item.textContent.trim().split('\n')[0] || convId;
+        
+        return { item, convId, title };
+      };
+      
+      // capture 阶段监听，绕过 React 事件拦截
+      document.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        const info = getConvInfo(e.target);
+        if (!info) return;
+        
+        lpStartX = e.clientX;
+        lpStartY = e.clientY;
+        lpConvId = info.convId;
+        lpTitle = info.title;
+        
+        lpTimer = setTimeout(() => {
+          lpTimer = null;
+          document.body.style.userSelect = 'none';
+          this.startMouseDrag(lpStartX, lpStartY, lpConvId, lpTitle);
+        }, 500);
+      }, true);
+      
+      document.addEventListener('mousemove', (e) => {
+        if (!lpTimer) return;
+        const dx = e.clientX - lpStartX;
+        const dy = e.clientY - lpStartY;
+        if (Math.sqrt(dx * dx + dy * dy) > 10) clearLp();
+      }, true);
+      
+      document.addEventListener('mouseup', () => {
+        clearLp();
+        if (document.body.style.userSelect === 'none') document.body.style.userSelect = '';
+      }, true);
+      
+      // 触摸设备
+      document.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1) return;
+        const touch = e.touches[0];
+        const info = getConvInfo(touch.target);
+        if (!info) return;
+        
+        lpStartX = touch.clientX;
+        lpStartY = touch.clientY;
+        lpConvId = info.convId;
+        lpTitle = info.title;
+        
+        lpTimer = setTimeout(() => {
+          lpTimer = null;
+          document.body.style.userSelect = 'none';
+          this.startMouseDrag(lpStartX, lpStartY, lpConvId, lpTitle);
+        }, 500);
+      }, { passive: true, capture: true });
+      
+      document.addEventListener('touchmove', (e) => {
+        if (!lpTimer || e.touches.length !== 1) return;
+        const touch = e.touches[0];
+        const dx = touch.clientX - lpStartX;
+        const dy = touch.clientY - lpStartY;
+        if (Math.sqrt(dx * dx + dy * dy) > 10) clearLp();
+      }, { passive: true, capture: true });
+      
+      document.addEventListener('touchend', () => {
+        clearLp();
+        if (document.body.style.userSelect === 'none') document.body.style.userSelect = '';
+      }, { capture: true });
     }
 
     addFavoriteButton(item, convId, title) {
+      // 在历史对话页不添加收藏按钮，避免干扰编辑标题
+      if (location.pathname.includes('/chat/history')) return;
+      
       // 避免重复添加
       if (item.querySelector('.voyager-fav-btn')) return;
+      
+      // 不给自己文件夹内的对话添加
+      if (item.closest('.kimi-voyager-folders')) return;
       
       // 查找是否已有菜单按钮区域
       const menuArea = item.querySelector('[class*="menu"], [class*="more"], [class*="action"]');
@@ -1676,6 +3341,128 @@
       }
     }
 
+    // ========== Custom Mouse Drag (bypass HTML5 DnD blocking) ==========
+    startMouseDrag(startX, startY, convId, title) {
+      if (this.mouseDrag) return;
+      
+      // Create ghost element
+      const ghost = createElement('div', {
+        className: 'voyager-drag-ghost',
+        styles: {
+          position: 'fixed',
+          left: `${startX}px`,
+          top: `${startY}px`,
+          zIndex: '99999',
+          pointerEvents: 'none',
+          opacity: '0.9',
+          transform: 'translate(-50%, -50%) scale(1.05)',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.4)'
+        },
+        children: [
+          createElement('div', {
+            className: 'voyager-drag-ghost-inner',
+            styles: {
+              background: 'rgba(31, 41, 55, 0.95)',
+              border: '1px solid rgba(79, 70, 229, 0.5)',
+              borderRadius: '8px',
+              padding: '8px 14px',
+              fontSize: '13px',
+              color: '#e5e7eb',
+              whiteSpace: 'nowrap',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            },
+            children: [
+              createElement('span', { text: '💬' }),
+              createElement('span', { text: title.length > 20 ? title.slice(0, 20) + '...' : title })
+            ]
+          })
+        ]
+      });
+      
+      document.body.appendChild(ghost);
+      
+      this.mouseDrag = {
+        convId,
+        title,
+        ghost,
+        hasMoved: false
+      };
+      
+      const onMove = (ev) => this.handleMouseDragMove(ev);
+      const onUp = (ev) => this.handleMouseDragEnd(ev);
+      
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp, { once: true });
+    }
+    
+    handleMouseDragMove(e) {
+      if (!this.mouseDrag) return;
+      const { ghost } = this.mouseDrag;
+      
+      ghost.style.left = `${e.clientX}px`;
+      ghost.style.top = `${e.clientY}px`;
+      this.mouseDrag.hasMoved = true;
+      
+      this._clearDropIndicator();
+      
+      // Hide ghost momentarily to get element below
+      ghost.style.display = 'none';
+      const elBelow = document.elementFromPoint(e.clientX, e.clientY);
+      ghost.style.display = '';
+      
+      if (elBelow) {
+        const folderItem = elBelow.closest('.kimi-voyager-folder-item');
+        if (folderItem) {
+          this._setDropIndicator(folderItem, 'inside');
+        }
+      }
+    }
+    
+    async handleMouseDragEnd(e) {
+      if (!this.mouseDrag) return;
+      const { convId, title, ghost, hasMoved } = this.mouseDrag;
+      this.mouseDrag = null;
+      
+      ghost.remove();
+      this._clearDropIndicator();
+      
+      if (!hasMoved) return; // Just a click, not a drag
+      
+      // Find folder under cursor
+      const elBelow = document.elementFromPoint(e.clientX, e.clientY);
+      if (!elBelow) return;
+      
+      const folderItem = elBelow.closest('.kimi-voyager-folder-item');
+      if (!folderItem) return;
+      
+      const folderId = folderItem.dataset.folderId;
+      if (!folderId) return;
+      
+      // 递归查找目标文件夹
+      const findFolderById = (folders, id) => {
+        for (const f of folders) {
+          if (f.id === id) return f;
+          if (f.children) {
+            const found = findFolderById(f.children, id);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+      
+      const targetFolder = findFolderById(globalState.folders, folderId);
+      if (!targetFolder) return;
+      
+      if (globalState.moveConversationToFolder(convId, title, folderId)) {
+        this.renderFolders();
+        showToast(`已移动 "${title}" 到 "${targetFolder.name}"`, 'success');
+      } else {
+        showToast('该对话已在文件夹中', 'info');
+      }
+    }
+
     showFolderSelector(event, convId, title) {
       document.querySelectorAll('.kimi-voyager-folder-selector').forEach(m => m.remove());
       
@@ -1695,30 +3482,38 @@
         text: '添加到文件夹'
       }));
       
-      // 文件夹列表
+      // 递归渲染文件夹列表
+      const renderSelectorFolder = (folder, depth = 0) => {
+        const item = createElement('div', {
+          className: 'selector-folder-item',
+          styles: { paddingLeft: `${12 + depth * 16}px` },
+          events: {
+            click: () => {
+              if (globalState.moveConversationToFolder(convId, title, folder.id)) {
+                showToast(`已移动到 "${folder.name}"`, 'success');
+                this.renderFolders();
+              } else {
+                showToast('该对话已在文件夹中', 'info');
+              }
+              selector.remove();
+            }
+          }
+        });
+        item.appendChild(createElement('span', { text: `📁 ${folder.name}` }));
+        selector.appendChild(item);
+        
+        if (folder.children?.length > 0) {
+          folder.children.forEach(child => renderSelectorFolder(child, depth + 1));
+        }
+      };
+      
       if (globalState.folders.length === 0) {
         selector.appendChild(createElement('div', {
           className: 'selector-empty',
           text: '暂无文件夹，请先创建'
         }));
       } else {
-        globalState.folders.forEach(folder => {
-          selector.appendChild(createElement('div', {
-            className: 'selector-folder-item',
-            text: `📁 ${folder.name}`,
-            events: {
-              click: () => {
-                if (globalState.addConversationToFolder(convId, title, folder.id)) {
-                  showToast(`已添加到 "${folder.name}"`, 'success');
-                  this.renderFolders();
-                } else {
-                  showToast('该对话已在文件夹中', 'info');
-                }
-                selector.remove();
-              }
-            }
-          }));
-        });
+        globalState.folders.forEach(folder => renderSelectorFolder(folder));
       }
       
       // 新建文件夹按钮
@@ -1735,12 +3530,117 @@
       
       document.body.appendChild(selector);
       
-      setTimeout(() => {
-        document.addEventListener('click', function closeSelector() {
+      // 使用 mousedown + capture 确保点击外部一定能关闭
+      const closeSelector = (e) => {
+        if (!selector.contains(e.target)) {
           selector.remove();
-          document.removeEventListener('click', closeSelector);
-        });
-      }, 0);
+          document.removeEventListener('mousedown', closeSelector, true);
+          document.removeEventListener('keydown', closeOnEsc, true);
+        }
+      };
+      const closeOnEsc = (e) => {
+        if (e.key === 'Escape') {
+          selector.remove();
+          document.removeEventListener('mousedown', closeSelector, true);
+          document.removeEventListener('keydown', closeOnEsc, true);
+        }
+      };
+      requestAnimationFrame(() => {
+        document.addEventListener('mousedown', closeSelector, true);
+        document.addEventListener('keydown', closeOnEsc, true);
+      });
+    }
+
+    observeNativeMenus() {
+      // 记录最后交互的对话（右键或左键点击对话项时）
+      const storeConv = (e) => {
+        const chatLink = e.target.closest('a[href*="/chat/"], [class*="chat-item"], [class*="conversation-item"]');
+        if (chatLink) {
+          const href = chatLink.getAttribute('href') || '';
+          const convId = chatLink.dataset.convId || (href.match(/\/chat\/([^/?#]+)/) ? href.match(/\/chat\/([^/?#]+)/)[1] : '');
+          if (convId && this.isValidConvId(convId)) {
+            let title = '';
+            const titleSelectors = ['.chat-name', '[class*="chat-name"]', '.title', '[class*="title"]', '.name', '[class*="name"]'];
+            for (const sel of titleSelectors) {
+              const titleEl = chatLink.querySelector(sel);
+              if (titleEl) { title = titleEl.textContent.trim(); break; }
+            }
+            if (!title) title = chatLink.textContent.trim().split('\n')[0] || convId;
+            this.lastRightClickedConv = { id: convId, title, element: chatLink };
+          }
+        }
+      };
+      document.addEventListener('contextmenu', storeConv);
+      document.addEventListener('click', storeConv, true);
+
+      // 只在 body 新增直接子节点时注入菜单选项（弹出菜单通常是 body 的直接子节点）
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const node of mutation.addedNodes) {
+            if (node.nodeType !== Node.ELEMENT_NODE) continue;
+            
+            // 跳过 Voyager 自己的元素
+            if (node.closest?.('.kimi-voyager-folders, .kimi-voyager-folder-selector, .kimi-voyager-context-menu')) continue;
+            
+            // 检查新增节点本身是否是菜单容器
+            const role = node.getAttribute('role');
+            const isMenuContainer = role === 'menu' || role === 'listbox' || /dropdown|popover|menu|portal|overlay/i.test(node.className || '');
+            
+            if (isMenuContainer) {
+              this.injectMenuOption(node);
+              continue;
+            }
+            
+            // 检查新增节点内部是否有菜单（通常弹出菜单就是新增节点本身，这里是兜底）
+            node.querySelectorAll?.('[role="menu"], [role="listbox"]').forEach(menu => {
+              if (!menu.closest('.kimi-voyager-folders, .kimi-voyager-folder-selector, .kimi-voyager-context-menu')) {
+                this.injectMenuOption(menu);
+              }
+            });
+          }
+        }
+      });
+
+      observer.observe(document.body, { childList: true, subtree: false });
+    }
+
+    injectMenuOption(menuEl) {
+      if (!this.lastRightClickedConv) return;
+      if (menuEl.querySelector('.voyager-menu-add-to-folder')) return;
+
+      const menuList = menuEl.querySelector('ul, ol, [class*="list"], [role="menu"]') || menuEl;
+      if (!menuList) return;
+
+      const { id: convId, title } = this.lastRightClickedConv;
+
+      const option = createElement('div', {
+        className: 'voyager-menu-add-to-folder',
+        text: '⭐ 添加到文件夹',
+        styles: {
+          padding: '8px 16px',
+          cursor: 'pointer',
+          fontSize: '14px',
+          color: '#e5e7eb',
+          transition: 'background 0.2s',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          borderTop: menuList.children.length > 0 ? '1px solid rgba(255,255,255,0.1)' : 'none'
+        },
+        events: {
+          click: (e) => {
+            e.stopPropagation();
+            this.showFolderSelector(e, convId, title);
+            menuEl.remove();
+            const overlay = document.querySelector('[class*="overlay"], [class*="backdrop"]');
+            if (overlay) overlay.remove();
+          },
+          mouseenter: (e) => { e.target.style.background = 'rgba(255,255,255,0.1)'; },
+          mouseleave: (e) => { e.target.style.background = 'transparent'; }
+        }
+      });
+
+      menuList.appendChild(option);
     }
 
     setupContextMenus() {
@@ -1763,25 +3663,143 @@
     async handleDrop(e, folder, item) {
       e.preventDefault();
       e.stopPropagation();
-      item.classList.remove('drag-over');
+      this._clearDropIndicator();
       
       let data;
       try {
         data = JSON.parse(e.dataTransfer.getData('application/json') || '{}');
       } catch (err) { return; }
       
-      if (data.type === 'conversation' && data.id) {
-        if (globalState.addConversationToFolder(data.id, data.title, folder.id)) {
+      const convId = data.id || data.convId;
+      if ((data.type === 'conversation' || data.type === 'folder-conversation') && convId) {
+        // 递归查找源文件夹（用于显示移动提示）
+        const findSourceFolder = (folders) => {
+          for (const f of folders) {
+            if (f.conversations?.some(c => c.id === convId)) return f;
+            if (f.children) {
+              const found = findSourceFolder(f.children);
+              if (found) return found;
+            }
+          }
+          return null;
+        };
+        const sourceFolder = findSourceFolder(globalState.folders);
+        const convTitle = data.title || '未命名对话';
+        if (globalState.moveConversationToFolder(convId, convTitle, folder.id)) {
           this.renderFolders();
-          showToast(`已添加 "${data.title}" 到文件夹`, 'success');
+          if (sourceFolder && sourceFolder.id !== folder.id) {
+            showToast(`已移动 "${convTitle}" 到 "${folder.name}"`, 'success');
+          } else {
+            showToast(`已添加 "${convTitle}" 到 "${folder.name}"`, 'success');
+          }
         } else {
           showToast('该对话已在文件夹中', 'info');
         }
       }
     }
 
+    handleFolderConvDragStart(e, folder, conv, index) {
+      this.currentDrag = { type: 'folder-conversation', folderId: folder.id, convId: conv.id, fromIndex: index, title: conv.title };
+      this._dragState = { type: 'folder-conversation', id: conv.id, title: conv.title, sourceEl: e.target };
+      e.stopPropagation();
+      e.dataTransfer.setData('application/json', JSON.stringify(this.currentDrag));
+      e.dataTransfer.effectAllowed = 'move';
+      e.target.classList.add('dragging');
+    }
+
+    handleFolderConvDragEnd() {
+      this.currentDrag = null;
+      document.querySelectorAll('.folder-drop-indicator').forEach(el => {
+        el.style.display = 'none';
+      });
+      this._cleanupDrag();
+    }
+
+    handleFolderContentDragOver(e, folder, contentArea) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (!this.currentDrag || this.currentDrag.type !== 'folder-conversation') return;
+      if (this.currentDrag.folderId !== folder.id) return;
+
+      const indicator = contentArea.querySelector('.folder-drop-indicator');
+      if (!indicator) return;
+
+      const convItems = [...contentArea.querySelectorAll('.folder-conv-item')];
+      if (convItems.length === 0) {
+        indicator.style.display = 'block';
+        indicator.style.top = '0px';
+        return;
+      }
+
+      const rect = contentArea.getBoundingClientRect();
+      const relativeY = e.clientY - rect.top;
+
+      let insertIndex = 0;
+      for (let i = 0; i < convItems.length; i++) {
+        const itemRect = convItems[i].getBoundingClientRect();
+        const itemCenter = itemRect.top + itemRect.height / 2 - rect.top;
+        if (relativeY > itemCenter) {
+          insertIndex = i + 1;
+        }
+      }
+
+      this.folderDropTargetIndex = insertIndex;
+
+      let targetTop = 0;
+      if (insertIndex >= convItems.length) {
+        const lastItem = convItems[convItems.length - 1];
+        const lastRect = lastItem.getBoundingClientRect();
+        targetTop = lastRect.bottom - rect.top;
+      } else {
+        const targetItem = convItems[insertIndex];
+        const targetRect = targetItem.getBoundingClientRect();
+        targetTop = targetRect.top - rect.top;
+      }
+
+      indicator.style.display = 'block';
+      indicator.style.top = `${targetTop}px`;
+    }
+
+    handleFolderContentDragLeave(e, contentArea) {
+      if (!contentArea.contains(e.relatedTarget)) {
+        const indicator = contentArea.querySelector('.folder-drop-indicator');
+        if (indicator) indicator.style.display = 'none';
+      }
+    }
+
+    handleFolderContentDrop(e, folder, contentArea) {
+      const indicator = contentArea.querySelector('.folder-drop-indicator');
+      if (indicator) indicator.style.display = 'none';
+
+      let data;
+      try {
+        data = JSON.parse(e.dataTransfer.getData('application/json') || '{}');
+      } catch (err) { data = {}; }
+
+      if (data.type === 'folder-conversation' && data.folderId === folder.id) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const fromIndex = data.fromIndex;
+        let toIndex = this.folderDropTargetIndex !== undefined ? this.folderDropTargetIndex : folder.conversations.length;
+
+        if (fromIndex < toIndex) toIndex--;
+
+        if (fromIndex === toIndex || fromIndex < 0 || fromIndex >= folder.conversations.length) return;
+
+        const [moved] = folder.conversations.splice(fromIndex, 1);
+        folder.conversations.splice(toIndex, 0, moved);
+
+        globalState.saveFolders();
+        this.renderFolders();
+        showToast('已重新排序', 'success');
+      }
+    }
+
     injectStyles() {
       const style = createElement('style', {
+        attributes: { 'data-kv-folder-styles': '1' },
         text: `
           .kimi-voyager-folders {
             margin-bottom: 16px;
@@ -1827,23 +3845,88 @@
             margin-bottom: 12px;
           }
           .kimi-voyager-folder-item {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 0;
+            padding: 0;
+            border-radius: 8px;
+            cursor: default;
+            transition: all 0.2s;
+            border: 2px dashed transparent;
+            margin-bottom: 4px;
+            overflow: hidden;
+          }
+          .kimi-voyager-folder-item .folder-header {
             display: flex;
             align-items: center;
             gap: 8px;
             padding: 10px 12px;
-            border-radius: 8px;
             cursor: pointer;
-            transition: all 0.2s;
-            border: 2px dashed transparent;
-            margin-bottom: 4px;
+            transition: background 0.2s;
+            width: 100%;
+            box-sizing: border-box;
           }
-          .kimi-voyager-folder-item:hover {
+          .kimi-voyager-folder-item .folder-header:hover {
             background: rgba(255, 255, 255, 0.08);
+          }
+          .kimi-voyager-folder-item.expanded {
+            background: rgba(255, 255, 255, 0.03);
+          }
+          .kimi-voyager-folder-item.expanded .folder-header {
+            background: rgba(255, 255, 255, 0.05);
           }
           .kimi-voyager-folder-item.drag-over {
             background: rgba(79, 70, 229, 0.2);
             border-color: #4f46e5;
             transform: scale(1.02);
+          }
+          .kimi-voyager-folder-item.drop-before {
+            position: relative;
+          }
+          .kimi-voyager-folder-item.drop-before::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: 8px;
+            right: 8px;
+            height: 2px;
+            background: #4f46e5;
+            border-radius: 1px;
+            z-index: 10;
+            pointer-events: none;
+            box-shadow: 0 0 6px rgba(79, 70, 229, 0.6);
+          }
+          .kimi-voyager-folder-item.drop-after {
+            position: relative;
+          }
+          .kimi-voyager-folder-item.drop-after::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 8px;
+            right: 8px;
+            height: 2px;
+            background: #4f46e5;
+            border-radius: 1px;
+            z-index: 10;
+            pointer-events: none;
+            box-shadow: 0 0 6px rgba(79, 70, 229, 0.6);
+          }
+          .hidden-history-item.dragging {
+            opacity: 0.4 !important;
+            background: rgba(79, 70, 229, 0.1);
+            border: 1px dashed rgba(79, 70, 229, 0.3);
+          }
+          .folder-conv-item.dragging {
+            opacity: 0.4;
+            background: rgba(79, 70, 229, 0.1);
+          }
+          .folder-arrow {
+            font-size: 10px;
+            color: #6b7280;
+            transition: transform 0.2s;
+            width: 12px;
+            text-align: center;
           }
           .folder-icon { font-size: 16px; }
           .folder-name {
@@ -1855,6 +3938,73 @@
             text-overflow: ellipsis;
           }
           .folder-count { font-size: 12px; color: #6b7280; }
+          .folder-content {
+            display: none;
+            padding: 4px 4px 4px 32px;
+          }
+          .kimi-voyager-folder-item.expanded .folder-content {
+            display: block;
+          }
+          .folder-conv-list {
+            display: flex;
+            flex-direction: column;
+            position: relative;
+          }
+          .folder-conv-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 12px;
+            color: #9ca3af;
+            position: relative;
+          }
+          .folder-conv-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #e5e7eb;
+          }
+          .folder-conv-item.active {
+            background: rgba(79, 70, 229, 0.15);
+            color: #e5e7eb;
+            border-left: 3px solid #4f46e5;
+          }
+          .folder-conv-item.dragging {
+            opacity: 0.5;
+          }
+          .folder-conv-drag-handle {
+            font-size: 10px;
+            color: #4b5563;
+            cursor: grab;
+            user-select: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            letter-spacing: -2px;
+            width: 14px;
+          }
+          .folder-conv-item:hover .folder-conv-drag-handle {
+            opacity: 1;
+          }
+          .folder-conv-icon { font-size: 12px; }
+          .folder-conv-title {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+          }
+          .folder-drop-indicator {
+            display: none;
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #4f46e5;
+            border-radius: 1px;
+            pointer-events: none;
+            z-index: 5;
+          }
 
           /* Hidden History Section */
           .kimi-voyager-hidden-history-section {
@@ -1918,18 +4068,49 @@
             transition: all 0.2s;
             font-size: 12px;
             color: #9ca3af;
-            draggable: true;
           }
           .hidden-history-item:hover {
             background: rgba(255, 255, 255, 0.05);
             color: #e5e7eb;
           }
+          .hidden-history-item.active {
+            background: rgba(79, 70, 229, 0.15);
+            color: #e5e7eb;
+            border-left: 3px solid #4f46e5;
+          }
           .hidden-history-item-icon { font-size: 12px; }
+          .hidden-history-drag-handle {
+            font-size: 10px;
+            color: #4b5563;
+            cursor: grab;
+            user-select: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            letter-spacing: -2px;
+            width: 14px;
+          }
+          .hidden-history-item:hover .hidden-history-drag-handle {
+            opacity: 1;
+          }
           .hidden-history-item-title {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             flex: 1;
+          }
+          .hidden-history-load-more {
+            text-align: center;
+            padding: 10px;
+            font-size: 12px;
+            color: #6b7280;
+            cursor: pointer;
+            border-radius: 6px;
+            margin-top: 4px;
+            transition: all 0.2s;
+          }
+          .hidden-history-load-more:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #e5e7eb;
           }
 
           /* Submenu */
@@ -1974,7 +4155,7 @@
           
           /* Drag handle */
           .voyager-drag-handle {
-            pointer-events: none;
+            pointer-events: auto;
           }
           
           /* Favorite button */
@@ -2046,9 +4227,84 @@
           .kimi-voyager-folder-selector .selector-new-folder:hover {
             background: rgba(79, 70, 229, 0.1);
           }
+          
+          /* Context Menu */
+          .kimi-voyager-context-menu {
+            background: #374151;
+            border-radius: 8px;
+            padding: 4px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+            min-width: 140px;
+            animation: menuFadeIn 0.15s ease;
+          }
+          @keyframes menuFadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+          }
+          .kimi-voyager-context-menu .menu-item {
+            padding: 8px 12px;
+            font-size: 13px;
+            color: #e5e7eb;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.2s;
+          }
+          .kimi-voyager-context-menu .menu-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+          }
+          .kimi-voyager-context-menu .menu-item.danger {
+            color: #ef4444;
+          }
+          .kimi-voyager-context-menu .menu-item.danger:hover {
+            background: rgba(239, 68, 68, 0.15);
+          }
+
+          /* Folder top menu */
+          .kimi-voyager-folder-menu {
+            background: #374151;
+            border-radius: 8px;
+            padding: 4px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+            min-width: 180px;
+            animation: menuFadeIn 0.15s ease;
+          }
+          .kimi-voyager-folder-menu .menu-item {
+            padding: 8px 12px;
+            font-size: 13px;
+            color: #e5e7eb;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.2s;
+          }
+          .kimi-voyager-folder-menu .menu-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+          }
+          .kimi-voyager-folders-menu-btn:hover {
+            background: rgba(255, 255, 255, 0.2) !important;
+          }
+
+          /* Custom mouse drag ghost */
+          .voyager-drag-ghost {
+            animation: ghostPopIn 0.1s ease;
+          }
+          @keyframes ghostPopIn {
+            from { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+            to { opacity: 0.9; transform: translate(-50%, -50%) scale(1.05); }
+          }
         `
       });
       document.head.appendChild(style);
+    }
+
+    _clearUICreationRetries() {
+      if (this._uiObserver) {
+        this._uiObserver.disconnect();
+        this._uiObserver = null;
+      }
+      if (this._uiRetryInterval) {
+        clearInterval(this._uiRetryInterval);
+        this._uiRetryInterval = null;
+      }
     }
 
     destroy() {
@@ -2056,10 +4312,16 @@
         clearInterval(this.dragDropInterval);
         this.dragDropInterval = null;
       }
+      if (this.interceptedDataPollInterval) {
+        clearInterval(this.interceptedDataPollInterval);
+        this.interceptedDataPollInterval = null;
+      }
+      this._clearUICreationRetries();
       if (this.container) {
         this.container.remove();
         this.container = null;
       }
+      document.querySelectorAll('.kimi-voyager-folders').forEach(el => el.remove());
     }
   }
 
@@ -2072,30 +4334,75 @@
     }
 
     async init() {
-      if (this.initialized) return;
+      if (this._initInProgress) return;
+      this._initInProgress = true;
       
-      console.log('🚀 Kimi Voyager v1.0.0-Modified initializing...');
-      const url = window.location.href;
-      const isChatPage = url.includes('/chat');
-      
-      console.log('📍 URL:', url, 'isChatPage:', isChatPage);
+      try {
+        console.log('🚀 Kimi Voyager v1.0.0-Modified initializing...');
+        const url = window.location.href;
+        const isChatPage = url.includes('/chat');
+        const currentPath = location.pathname;
+        
+        console.log('📍 URL:', url, 'isChatPage:', isChatPage);
 
-      if (isChatPage) {
-        this.features.timeline = new Timeline();
-        this.features.timeline.init();
-
-        this.features.exportManager = new ExportManager();
-        this.features.exportManager.init();
-
+      // 所有 Kimi 页面都初始化 FolderManager（只要侧边栏存在或可能出现）
+      if (!this.features.folderManager) {
         this.features.folderManager = new FolderManager();
         await this.features.folderManager.init();
-
-        // 默认无视觉效果
-        this.visualEffects.init('none');
+      } else if (!this.features.folderManager.container || !this.features.folderManager.container.isConnected) {
+        this.features.folderManager.createUI();
+        this.features.folderManager.renderFolders();
       }
 
-      this.initialized = true;
-      console.log('✅ Kimi Voyager initialized');
+      if (isChatPage) {
+        if (!this.chatInitialized) {
+          this.features.timeline = new Timeline();
+          this.features.timeline.init();
+
+          this.features.exportManager = new ExportManager();
+          this.features.exportManager.init();
+
+          // 默认无视觉效果
+          this.visualEffects.init('none');
+          
+          this.chatInitialized = true;
+          this.lastChatPath = currentPath;
+          console.log('✅ Kimi Voyager chat features initialized');
+        } else if (this.lastChatPath !== currentPath) {
+          // SPA navigation within chat pages (different conversation)
+          this.lastChatPath = currentPath;
+          if (this.features.folderManager) {
+            this.features.folderManager.updateActiveHighlights();
+            if (!this.features.folderManager.container || !this.features.folderManager.container.isConnected) {
+              this.features.folderManager.createUI();
+              this.features.folderManager.renderFolders();
+            }
+          }
+          console.log('🔄 Kimi Voyager updated for new conversation');
+        }
+      } else {
+        // 非对话页：只清理 timeline/exportManager，保留 FolderManager
+        if (this.chatInitialized) {
+          if (this.features.timeline) {
+            this.features.timeline.destroy?.();
+            this.features.timeline = null;
+          }
+          if (this.features.exportManager) {
+            this.features.exportManager.destroy();
+            this.features.exportManager = null;
+          }
+          this.chatInitialized = false;
+          this.lastChatPath = null;
+        }
+      }
+
+        this.initialized = true;
+        console.log('✅ Kimi Voyager initialized');
+      } catch (error) {
+        console.error('❌ Kimi Voyager initialization error:', error);
+      } finally {
+        this._initInProgress = false;
+      }
     }
 
     setVisualEffect(type) {
@@ -2115,14 +4422,72 @@
     voyager.init();
   }
 
-  // Handle URL changes
+  // 跨标签页同步：当其他标签页修改文件夹数据时自动刷新当前标签页
+  if (chrome.storage?.onChanged) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes.folders) {
+        globalState.folders = changes.folders.newValue || [];
+        if (voyager.features?.folderManager) {
+          voyager.features.folderManager.renderFolders();
+        }
+      }
+    });
+  }
+
+  // Handle SPA navigation: intercept history methods + setInterval fallback + MutationObserver
   let lastUrl = location.href;
+  const originalPushState = history.pushState;
+  const originalReplaceState = history.replaceState;
+
+  history.pushState = function(...args) {
+    originalPushState.apply(this, args);
+    window.dispatchEvent(new Event('kimi-voyager-pushstate'));
+  };
+  history.replaceState = function(...args) {
+    originalReplaceState.apply(this, args);
+    window.dispatchEvent(new Event('kimi-voyager-replacestate'));
+  };
+
+  const handleNavigation = () => {
+    const newUrl = location.href;
+    if (newUrl !== lastUrl) {
+      lastUrl = newUrl;
+      setTimeout(() => voyager.init(), 300);
+    }
+  };
+
+  window.addEventListener('popstate', handleNavigation);
+  window.addEventListener('kimi-voyager-pushstate', handleNavigation);
+  window.addEventListener('kimi-voyager-replacestate', handleNavigation);
+  window.addEventListener('hashchange', handleNavigation);
+
+  // setInterval fallback: detects URL changes even if pushState interception failed
   setInterval(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      setTimeout(() => voyager.init(), 1000);
+      voyager.init();
     }
   }, 1000);
+
+  // MutationObserver to detect sidebar appearance/disappearance on SPA navigation
+  const isKimiSite = () => /kimi\.(com|moonshot\.cn)/.test(location.href);
+  const sidebarObserver = new MutationObserver(() => {
+    if (!isKimiSite()) return;
+    if (!voyager.features.folderManager) {
+      voyager.init();
+    } else {
+      const fm = voyager.features.folderManager;
+      if (!fm.container || !fm.container.isConnected) {
+        console.log('📁 Sidebar container lost, recreating FolderManager UI');
+        fm.createUI();
+        fm.renderFolders();
+      }
+      if (location.href.includes('/chat') && !voyager.chatInitialized) {
+        voyager.init();
+      }
+    }
+  });
+  sidebarObserver.observe(document.body, { childList: true, subtree: true });
 
   // Listen for messages from popup/background
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -2138,6 +4503,15 @@
       case 'toggleFeature':
         // Handle feature toggle
         sendResponse({ success: true });
+        break;
+      case 'getDomHtml':
+        // 返回当前页面的完整 DOM HTML（用于从历史页面提取数据）
+        try {
+          const html = document.documentElement.outerHTML;
+          sendResponse({ success: true, html });
+        } catch (e) {
+          sendResponse({ success: false, error: e.message });
+        }
         break;
       case 'getConversationData':
         // Return conversation data for export

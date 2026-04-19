@@ -149,6 +149,34 @@ async function handleMessage(request, sender, sendResponse) {
         chrome.runtime.openOptionsPage();
         sendResponse({ success: true });
         break;
+
+      case 'fetchHistoryPage':
+        console.log('[Background] fetchHistoryPage 收到请求:', request.url);
+        try {
+          // 尝试带上完整的浏览器 User-Agent，模拟真实浏览器导航请求
+          const resp = await fetch(request.url, {
+            credentials: 'include',
+            headers: {
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+              'Referer': request.url,
+              'User-Agent': navigator.userAgent,
+              'Upgrade-Insecure-Requests': '1'
+            }
+          });
+          console.log('[Background] fetch 状态:', resp.status);
+          if (!resp.ok) {
+            sendResponse({ success: false, error: `HTTP ${resp.status}` });
+          } else {
+            const html = await resp.text();
+            const hasData = html.includes('data-conv-id') || html.includes('history-link') || /\/chat\/[a-zA-Z0-9-]{10,40}/.test(html);
+            console.log('[Background] fetch 成功，HTML 大小:', html.length, '包含对话数据:', hasData);
+            sendResponse({ success: true, html });
+          }
+        } catch (fetchErr) {
+          console.log('[Background] fetch 异常:', fetchErr.message);
+          sendResponse({ success: false, error: fetchErr.message });
+        }
+        break;
         
       default:
         sendResponse({ success: false, error: 'Unknown action' });
