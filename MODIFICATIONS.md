@@ -116,39 +116,7 @@
 
 ---
 
-## 五、Kimi Voyager 无法在当前 Kimi 官网使用的原因
-
-### 1. 域名不匹配（根本原因）
-- **原始项目**：`manifest.json` 中的 `host_permissions` 和 `content_scripts.matches` **仅包含 `https://kimi.moonshot.cn/*`**
-- **当前 Kimi 官网**：主域名已迁移至 **`https://kimi.com/`** 和 **`https://www.kimi.com/`**
-- 由于浏览器扩展的安全策略，内容脚本不会注入到未声明的域名页面中，导致扩展在 `kimi.com` 上完全无法加载
-- 同样，background.js 和 popup.js 中通过 `chrome.tabs.query({ url: 'https://kimi.moonshot.cn/*' })` 查询标签页，在 `kimi.com` 页面无法匹配到任何标签，导致所有页面交互功能失效
-
-### 2. DOM 选择器过时
-- **原始项目**：硬编码了旧版 Kimi 页面的特定类名：
-  - `.history-part`（历史会话区域）
-  - `.sidebar-nav`（侧边栏导航）
-  - `.chat-content-item` / `.chat-content-item-user`（聊天消息项）
-  - `.chat-info-item`（对话列表项）
-  - `.user-content`（用户消息内容）
-- **当前 Kimi 官网**：前端框架经过多轮重构，上述类名已变更或不再使用
-- 原始项目没有 fallback 机制，一旦选择器失效就直接报错或静默失败
-
-### 3. API 端点变更
-- **原始项目**：未提供从历史页面或 API 获取完整对话列表的能力
-- **当前 Kimi 官网**：历史数据通过 `https://www.kimi.com/apiv2/kimi.chat.v1.ChatService/ListChats` 等端点获取
-- 新项目通过 **网络拦截器**（hook `fetch` / `XMLHttpRequest`）和 **后台主动请求**（Bearer Token + Cookie）两种方式获取数据
-
-### 4. 缺乏动态适配机制
-- **原始项目**：仅在页面加载时初始化一次，使用固定选择器查找元素；如果元素未出现则直接失败
-- **新项目**：
-  - 使用 `MutationObserver` + `setInterval` 双重机制持续等待侧边栏出现
-  - 对匹配到的元素进行几何验证（是否在视口左侧、是否有足够高度），避免误匹配顶部导航栏
-  - SPA 路由变化监听（拦截 `pushState` / `replaceState` + `hashchange` + 轮询），确保页面切换后重新初始化
-
----
-
-## 六、已知问题修复记录
+## 五、已知问题修复记录
 
 | 问题 | 修复位置 |
 |---|---|

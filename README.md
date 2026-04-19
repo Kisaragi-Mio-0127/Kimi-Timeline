@@ -1,6 +1,12 @@
 # Kimi-Timeline
 
-**专为 Kimi AI 打造的浏览器增强扩展**，集成文件夹管理、对话时间轴、聊天记录导出等实用功能，让你的 AI 对话体验更加高效、有序。
+<p align="center">
+  <img src="kimi-timeline-extension/src/assets/icon128.png" alt="Kimi-Timeline Logo" width="128">
+</p>
+
+<p align="center">
+  <strong>专为 Kimi AI 打造的浏览器增强扩展</strong>，集成文件夹管理、对话时间轴、聊天记录导出等实用功能，让你的 AI 对话体验更加高效、有序。
+</p>
 
 > 💡 本项目基于多个开源项目整合与深度定制，专门为 [Kimi AI](https://kimi.com) 用户提供原生级的侧边栏增强体验。
 
@@ -73,18 +79,51 @@
 ```
 kimi-timeline-extension/
 ├── manifest.json              # Chrome Extension Manifest V3
+├── _locales/
+│   └── zh_CN/
+│       └── messages.json      # 中文本地化
 ├── src/
-│   └── content/
-│       └── content-v2.js      # 内容脚本（核心逻辑）
+│   ├── assets/                # 扩展图标
+│   │   ├── icon16.png
+│   │   ├── icon32.png
+│   │   ├── icon48.png
+│   │   └── icon128.png
+│   ├── background/
+│   │   └── background.js      # Service Worker：存储、导出、右键菜单
+│   ├── content/
+│   │   ├── content-v2.js      # 主内容脚本（核心逻辑入口）
+│   │   └── features/          # 功能模块
+│   │       ├── folderManager.js      # 文件夹管理
+│   │       ├── timeline.js           # 对话时间轴
+│   │       ├── exportManager.js      # 聊天记录导出
+│   │       ├── hiddenHistory.js      # 隐藏历史对话
+│   │       ├── visualEffects.js      # 视觉特效
+│   │       └── promptLibrary.js      # 提示词库（预留）
+│   ├── popup/
+│   │   ├── popup.html         # 弹出面板
+│   │   ├── popup.css
+│   │   └── popup.js           # 快捷操作与功能开关
+│   ├── options/
+│   │   ├── options.html       # 设置页面
+│   │   ├── options.css
+│   │   └── options.js
+│   ├── styles/
+│   │   └── content.css        # 注入 Kimi 页面的全局样式
+│   └── utils/
+│       ├── dom.js             # DOM 工具函数
+│       ├── messaging.js       # 消息通信封装
+│       └── storage.js         # Chrome Storage 封装
 └── README.md
 ```
 
 ### 本地开发
 
-本项目为纯前端内容脚本扩展，无需构建工具：
+本项目为纯前端扩展，**无需构建工具**，直接修改源码后刷新扩展即可生效：
 
-1. 修改 `src/content/content-v2.js` 中的代码
+1. 修改 `src/` 目录下的任意文件（如 `content-v2.js`、`popup.js`、`background.js`、`options.js` 等）
 2. 在 `chrome://extensions/` 中点击扩展的「刷新」按钮即可生效
+
+> 提示：`content-v2.js` 是核心内容脚本，集成了文件夹管理、时间轴、导出、隐藏历史等全部功能；如需调整页面交互逻辑，通常只需修改此文件。
 
 ---
 
