@@ -1884,6 +1884,7 @@
         contentArea.addEventListener('dragleave', (e) => this.handleFolderContentDragLeave(e, contentArea));
         contentArea.addEventListener('drop', (e) => this.handleFolderContentDrop(e, folder, contentArea));
 
+        const folderColor = folder.color || '#4f46e5';
         const header = createElement('div', {
           className: 'folder-header',
           styles: { paddingLeft: `${depth * 12}px` },
@@ -1896,6 +1897,16 @@
             }
           },
           children: [
+            createElement('span', {
+              className: 'folder-color-indicator',
+              styles: {
+                width: '4px',
+                height: '16px',
+                borderRadius: '2px',
+                backgroundColor: folderColor,
+                flexShrink: 0
+              }
+            }),
             createElement('span', { className: 'folder-arrow', text: arrow }),
             createElement('span', { className: 'folder-icon', text: '📁' }),
             createElement('span', { className: 'folder-name', text: folder.name }),
@@ -1985,6 +1996,7 @@
         globalState.folders.push({
           id: Date.now().toString(),
           name: name.trim(),
+          color: '#4f46e5',
           conversations: [],
           createdAt: Date.now()
         });
@@ -2144,6 +2156,17 @@
             events: {
               click: (e) => {
                 e.stopPropagation();
+                removeMenu();
+                this.showColorPicker(event, folder);
+              }
+            }
+          }),
+          createElement('div', {
+            className: 'menu-item',
+            text: '🔀 下一个颜色',
+            events: {
+              click: (e) => {
+                e.stopPropagation();
                 const colors = ['#4f46e5', '#ef4444', '#f97316', '#10b981', '#3b82f6', '#8b5cf6'];
                 const currentIndex = colors.indexOf(folder.color);
                 folder.color = colors[(currentIndex + 1) % colors.length] || colors[0];
@@ -2209,6 +2232,184 @@
       
       requestAnimationFrame(() => {
         document.addEventListener('mousedown', closeMenu, true);
+        document.addEventListener('keydown', closeOnEsc, true);
+      });
+    }
+
+    showColorPicker(event, folder) {
+      document.querySelectorAll('.kimi-voyager-color-picker').forEach(m => m.remove());
+
+      const PRESET_COLORS = ['#4f46e5', '#ef4444', '#f97316', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#06b6d4', '#6366f1'];
+      let selectedColor = folder.color || '#4f46e5';
+
+      const removePicker = () => {
+        picker.remove();
+        document.removeEventListener('mousedown', closePicker, true);
+        document.removeEventListener('keydown', closeOnEsc, true);
+      };
+
+      const applyColor = (color) => {
+        if (color && color !== folder.color) {
+          folder.color = color;
+          globalState.saveFolders();
+          this.renderFolders();
+        }
+        removePicker();
+      };
+
+      // 预设颜色网格
+      const colorGrid = createElement('div', {
+        styles: {
+          display: 'grid',
+          gridTemplateColumns: 'repeat(5, 1fr)',
+          gap: '8px',
+          marginBottom: '12px'
+        }
+      });
+
+      PRESET_COLORS.forEach(color => {
+        const isSelected = color.toLowerCase() === selectedColor.toLowerCase();
+        const swatch = createElement('div', {
+          styles: {
+            width: '28px',
+            height: '28px',
+            borderRadius: '50%',
+            backgroundColor: color,
+            cursor: 'pointer',
+            border: isSelected ? '2px solid #fff' : '2px solid transparent',
+            boxShadow: isSelected ? '0 0 0 2px ' + color : 'none',
+            justifySelf: 'center'
+          },
+          events: {
+            click: (e) => {
+              e.stopPropagation();
+              applyColor(color);
+            }
+          }
+        });
+        colorGrid.appendChild(swatch);
+      });
+
+      // 自定义颜色区域
+      const customInput = createElement('input', {
+        attributes: { type: 'text', placeholder: '#ff6600', value: selectedColor },
+        styles: {
+          width: '100%',
+          padding: '6px 10px',
+          borderRadius: '6px',
+          border: '1px solid rgba(255,255,255,0.2)',
+          background: 'rgba(255,255,255,0.1)',
+          color: '#e5e7eb',
+          fontSize: '13px',
+          boxSizing: 'border-box',
+          marginBottom: '10px'
+        }
+      });
+
+      const btnRow = createElement('div', {
+        styles: {
+          display: 'flex',
+          gap: '8px',
+          justifyContent: 'flex-end'
+        }
+      });
+
+      const cancelBtn = createElement('button', {
+        text: '取消',
+        styles: {
+          padding: '5px 12px',
+          borderRadius: '6px',
+          border: '1px solid rgba(255,255,255,0.2)',
+          background: 'transparent',
+          color: '#9ca3af',
+          fontSize: '13px',
+          cursor: 'pointer'
+        },
+        events: {
+          click: (e) => { e.stopPropagation(); removePicker(); }
+        }
+      });
+
+      const okBtn = createElement('button', {
+        text: '确定',
+        styles: {
+          padding: '5px 12px',
+          borderRadius: '6px',
+          border: 'none',
+          background: '#4f46e5',
+          color: '#fff',
+          fontSize: '13px',
+          cursor: 'pointer'
+        },
+        events: {
+          click: (e) => {
+            e.stopPropagation();
+            const val = customInput.value.trim();
+            if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
+              applyColor(val);
+            } else {
+              showToast('请输入有效的 HEX 颜色码，如 #ff6600', 'error');
+            }
+          }
+        }
+      });
+
+      btnRow.appendChild(cancelBtn);
+      btnRow.appendChild(okBtn);
+
+      const picker = createElement('div', {
+        className: 'kimi-voyager-color-picker',
+        styles: {
+          position: 'fixed',
+          left: `${event.clientX}px`,
+          top: `${event.clientY}px`,
+          zIndex: '999999',
+          background: 'rgba(31, 41, 55, 0.98)',
+          border: '1px solid rgba(255,255,255,0.15)',
+          borderRadius: '12px',
+          padding: '14px',
+          minWidth: '200px',
+          boxShadow: '0 10px 40px rgba(0,0,0,0.5)'
+        },
+        children: [
+          createElement('div', {
+            text: '选择颜色',
+            styles: {
+              fontSize: '14px',
+              fontWeight: '600',
+              color: '#e5e7eb',
+              marginBottom: '10px'
+            }
+          }),
+          colorGrid,
+          createElement('div', {
+            text: '自定义颜色',
+            styles: {
+              fontSize: '12px',
+              color: '#9ca3af',
+              marginBottom: '6px'
+            }
+          }),
+          customInput,
+          btnRow
+        ]
+      });
+
+      document.body.appendChild(picker);
+
+      const closePicker = (e) => {
+        if (!picker.contains(e.target)) {
+          removePicker();
+        }
+      };
+      const closeOnEsc = (e) => {
+        if (e.key === 'Escape') {
+          removePicker();
+        }
+      };
+
+      requestAnimationFrame(() => {
+        document.addEventListener('mousedown', closePicker, true);
         document.addEventListener('keydown', closeOnEsc, true);
       });
     }
@@ -2402,6 +2603,7 @@
 
     // ========== Hidden History ==========
     toggleHiddenHistory() {
+      if (!this.container) return;
       this.hiddenHistoryExpanded = !this.hiddenHistoryExpanded;
       
       const content = this.container.querySelector('.kimi-voyager-hidden-history-content');
@@ -2421,7 +2623,9 @@
     }
 
     async loadHiddenHistory() {
+      if (!this.container) return;
       const content = this.container.querySelector('.kimi-voyager-hidden-history-content');
+      if (!content) return;
       content.innerHTML = '<div class="hidden-history-loading">加载中...</div>';
 
       // 尝试从页面数据获取所有历史对话
@@ -2437,10 +2641,14 @@
     }
 
     async autoLoadHistory() {
+      // 仅在聊天相关页面执行，避免在 pricing、settings 等非对话页面报错
+      if (!location.pathname.includes('/chat') && location.pathname !== '/') return;
+      
       // 延迟等待页面稳定
       await new Promise(r => setTimeout(r, 2000));
       
-      const content = this.container?.querySelector('.kimi-voyager-hidden-history-content');
+      if (!this.container) return;
+      const content = this.container.querySelector('.kimi-voyager-hidden-history-content');
       if (!content) return;
       
       // 避免重复加载（但允许在历史页面多次尝试）
@@ -2921,7 +3129,9 @@
     }
 
     renderHiddenHistory() {
+      if (!this.container) return;
       const content = this.container.querySelector('.kimi-voyager-hidden-history-content');
+      if (!content) return;
       content.innerHTML = '';
 
       if (this.hiddenConversations.length === 0) {
@@ -3372,7 +3582,12 @@
 
     // ========== Custom Mouse Drag (bypass HTML5 DnD blocking) ==========
     startMouseDrag(startX, startY, convId, title) {
-      if (this.mouseDrag) return;
+      // 若上次拖拽因鼠标移出窗口等原因未清理，强制重置
+      if (this.mouseDrag) {
+        this.mouseDrag.ghost?.remove();
+        this._clearDropIndicator();
+        this.mouseDrag = null;
+      }
       
       // Create ghost element
       const ghost = createElement('div', {
@@ -3421,9 +3636,24 @@
       
       const onMove = (ev) => this.handleMouseDragMove(ev);
       const onUp = (ev) => this.handleMouseDragEnd(ev);
+      const onLeave = (ev) => {
+        if (ev.relatedTarget === null) {
+          // 鼠标移出浏览器窗口，强制结束拖拽
+          onUp(ev);
+        }
+      };
       
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp, { once: true });
+      document.addEventListener('mouseleave', onLeave, { once: true });
+      
+      // 安全兜底：30 秒后自动清理，避免极端情况下状态泄漏
+      if (this._dragSafetyTimer) clearTimeout(this._dragSafetyTimer);
+      this._dragSafetyTimer = setTimeout(() => {
+        if (this.mouseDrag) {
+          onUp({ clientX: 0, clientY: 0 });
+        }
+      }, 30000);
     }
     
     handleMouseDragMove(e) {
@@ -3453,6 +3683,12 @@
       if (!this.mouseDrag) return;
       const { convId, title, ghost, hasMoved } = this.mouseDrag;
       this.mouseDrag = null;
+      
+      // 清理安全兜底计时器
+      if (this._dragSafetyTimer) {
+        clearTimeout(this._dragSafetyTimer);
+        this._dragSafetyTimer = null;
+      }
       
       ghost.remove();
       this._clearDropIndicator();
