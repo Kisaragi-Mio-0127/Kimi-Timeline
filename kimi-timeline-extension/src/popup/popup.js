@@ -30,9 +30,6 @@ function setupEventListeners() {
     openExportDialog();
   });
   
-  document.getElementById('btn-prompts').addEventListener('click', () => {
-    openPromptLibrary();
-  });
   
   document.getElementById('btn-folders').addEventListener('click', () => {
     openFolderManager();
@@ -47,9 +44,6 @@ function setupEventListeners() {
     toggleFeature('timeline', e.target.checked);
   });
   
-  document.getElementById('toggle-prompts').addEventListener('change', (e) => {
-    toggleFeature('promptLibrary', e.target.checked);
-  });
   
   document.getElementById('toggle-export').addEventListener('change', (e) => {
     toggleFeature('export', e.target.checked);
@@ -82,7 +76,6 @@ function updateUI() {
   // 更新开关状态
   document.getElementById('toggle-folders').checked = settings.enableFolderManagement !== false;
   document.getElementById('toggle-timeline').checked = settings.enableTimeline !== false;
-  document.getElementById('toggle-prompts').checked = settings.enablePromptLibrary !== false;
   document.getElementById('toggle-export').checked = settings.enableExport !== false;
   
   // 更新视觉效果选择
