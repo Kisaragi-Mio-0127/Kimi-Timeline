@@ -172,7 +172,8 @@ export function createModal(options = {}) {
   const modal = createElement('div', {
     className: 'kimi-voyager-modal',
     styles: {
-      backgroundColor: '#fff',
+      backgroundColor: 'var(--kimi-voyager-menu-bg, #fff)',
+      color: 'var(--kimi-voyager-text, #111827)',
       borderRadius: '12px',
       padding: '24px',
       maxWidth: options.maxWidth || '500px',
@@ -189,7 +190,8 @@ export function createModal(options = {}) {
       styles: {
         margin: '0 0 16px 0',
         fontSize: '20px',
-        fontWeight: '600'
+        fontWeight: '600',
+        color: 'var(--kimi-voyager-text, #111827)'
       }
     });
     modal.appendChild(title);
@@ -219,9 +221,9 @@ export function createModal(options = {}) {
         styles: {
           padding: '10px 20px',
           borderRadius: '8px',
-          border: btn.primary ? 'none' : '1px solid #ddd',
-          backgroundColor: btn.primary ? '#4f46e5' : '#fff',
-          color: btn.primary ? '#fff' : '#333',
+          border: btn.primary ? 'none' : '1px solid var(--kimi-voyager-border-strong, #ddd)',
+          backgroundColor: btn.primary ? '#4f46e5' : 'var(--kimi-voyager-menu-bg, #fff)',
+          color: btn.primary ? '#fff' : 'var(--kimi-voyager-text, #333)',
           cursor: 'pointer',
           fontSize: '14px'
         },

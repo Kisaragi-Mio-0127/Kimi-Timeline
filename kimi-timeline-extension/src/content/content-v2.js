@@ -6,6 +6,67 @@
 (function() {
   'use strict';
 
+  // ============ Theme Detection ============
+  function detectKimiTheme() {
+    const html = document.documentElement;
+    const body = document.body;
+    
+    // 方法1: 检查 html/body class 或 data-theme
+    const indicators = [
+      html.className,
+      body?.className || '',
+      html.dataset.theme,
+      body?.dataset.theme || ''
+    ].join(' ').toLowerCase();
+    
+    if (indicators.includes('light') && !indicators.includes('dark')) return 'light';
+    if (indicators.includes('dark')) return 'dark';
+    
+    // 方法2: 检查主要容器的背景色亮度
+    try {
+      const main = document.querySelector('main') || document.querySelector('div[class*="main"]') || body;
+      if (main) {
+        const bg = window.getComputedStyle(main).backgroundColor;
+        const match = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (match) {
+          const r = parseInt(match[1]), g = parseInt(match[2]), b = parseInt(match[3]);
+          const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+          if (luminance > 180) return 'light';
+          if (luminance < 80) return 'dark';
+        }
+      }
+    } catch (e) {}
+    
+    // 方法3: fallback 到系统主题
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  
+  function applyKimiTheme() {
+    const theme = detectKimiTheme();
+    const current = document.documentElement.dataset.kvTheme;
+    if (current !== theme) {
+      document.documentElement.dataset.kvTheme = theme;
+      console.log('[Kimi Voyager] Theme detected:', theme);
+    }
+  }
+  
+  // 初始化主题检测
+  applyKimiTheme();
+  
+  // 监听主题变化（Kimi 可能动态切换主题）
+  const themeObserver = new MutationObserver(() => applyKimiTheme());
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+  if (document.body) {
+    themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+  } else {
+    window.addEventListener('DOMContentLoaded', () => {
+      applyKimiTheme();
+      if (document.body) {
+        themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+      }
+    });
+  }
+  
   // ============ Global Network Interceptor (must run before any fetch) ============
   window.__kimiVoyagerInterceptedData = window.__kimiVoyagerInterceptedData || [];
   window.__kimiVoyagerInterceptedMessages = window.__kimiVoyagerInterceptedMessages || [];
@@ -1074,11 +1135,11 @@
           .kimi-voyager-prompt-list {
             width: 220px;
             max-height: 70vh;
-            background: rgba(31, 41, 55, 0.98);
+            background: var(--kimi-voyager-bg, rgba(31, 41, 55, 0.98));
             backdrop-filter: blur(10px);
             border-radius: 12px;
             padding: 12px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            box-shadow: var(--kimi-voyager-shadow, 0 10px 40px rgba(0, 0, 0, 0.5));
             display: flex;
             flex-direction: column;
             transition: all 0.3s ease;
@@ -1098,22 +1159,22 @@
             align-items: center;
             margin-bottom: 10px;
             padding-bottom: 8px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
             flex-shrink: 0;
           }
 
           .kimi-voyager-prompt-list-header span {
             font-size: 13px;
             font-weight: 600;
-            color: #e5e7eb;
+            color: var(--kimi-voyager-text, #e5e7eb);
           }
 
           .kimi-voyager-prompt-list-close {
             width: 22px;
             height: 22px;
             border: none;
-            background: rgba(255, 255, 255, 0.1);
-            color: #9ca3af;
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.1));
+            color: var(--kimi-voyager-text-muted, #9ca3af);
             border-radius: 4px;
             cursor: pointer;
             font-size: 14px;
@@ -1123,8 +1184,8 @@
           }
 
           .kimi-voyager-prompt-list-close:hover {
-            background: rgba(255, 255, 255, 0.2);
-            color: #e5e7eb;
+            background: var(--kimi-voyager-bg-tertiary, rgba(255, 255, 255, 0.2));
+            color: var(--kimi-voyager-text, #e5e7eb);
           }
 
           .kimi-voyager-prompt-list-content {
@@ -1141,13 +1202,13 @@
           }
 
           .kimi-voyager-prompt-list-content::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.15);
+            background: var(--kimi-voyager-bg-tertiary, rgba(255, 255, 255, 0.15));
             border-radius: 2px;
           }
 
           .kimi-voyager-prompt-empty {
             font-size: 13px;
-            color: #6b7280;
+            color: var(--kimi-voyager-text-muted, #6b7280);
             text-align: center;
             padding: 20px 0;
           }
@@ -1167,18 +1228,18 @@
             cursor: pointer;
             transition: all 0.2s;
             font-size: 12px;
-            color: #9ca3af;
+            color: var(--kimi-voyager-text-muted, #9ca3af);
             line-height: 1.4;
           }
 
           .kimi-voyager-prompt-item:hover {
-            background: rgba(255, 255, 255, 0.08);
-            color: #e5e7eb;
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.08));
+            color: var(--kimi-voyager-text, #e5e7eb);
           }
 
           .kimi-voyager-prompt-item.active {
-            background: rgba(79, 70, 229, 0.25);
-            color: #e5e7eb;
+            background: var(--kimi-voyager-bg-active, rgba(79, 70, 229, 0.25));
+            color: var(--kimi-voyager-text, #e5e7eb);
             border-left: 3px solid #4f46e5;
           }
 
@@ -1193,7 +1254,7 @@
           .prompt-item-number {
             flex-shrink: 0;
             font-weight: 600;
-            color: #6b7280;
+            color: var(--kimi-voyager-text-muted, #6b7280);
             min-width: 20px;
           }
 
@@ -1212,11 +1273,11 @@
 
           .kimi-voyager-prompt-stats {
             font-size: 11px;
-            color: #6b7280;
+            color: var(--kimi-voyager-text-muted, #6b7280);
             text-align: center;
             margin-top: 8px;
             padding-top: 8px;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            border-top: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
           }
 
           /* Timeline - Right Track */
@@ -1239,7 +1300,7 @@
             align-items: center;
             justify-content: center;
             cursor: grab;
-            color: rgba(255, 255, 255, 0.4);
+            color: var(--kimi-voyager-text-muted, rgba(255, 255, 255, 0.4));
             font-size: 12px;
             margin-bottom: 4px;
             border-radius: 4px;
@@ -1247,8 +1308,8 @@
           }
 
           .kimi-voyager-timeline-draghandle:hover {
-            background: rgba(255, 255, 255, 0.1);
-            color: rgba(255, 255, 255, 0.7);
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.1));
+            color: var(--kimi-voyager-text-secondary, rgba(255, 255, 255, 0.7));
           }
 
           .kimi-voyager-timeline-toggle-btn {
@@ -1258,18 +1319,18 @@
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            color: rgba(255, 255, 255, 0.5);
+            color: var(--kimi-voyager-text-muted, rgba(255, 255, 255, 0.5));
             font-size: 14px;
             margin-bottom: 8px;
             border-radius: 6px;
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.08));
+            border: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
             transition: all 0.2s;
           }
 
           .kimi-voyager-timeline-toggle-btn:hover {
-            background: rgba(255, 255, 255, 0.15);
-            color: rgba(255, 255, 255, 0.8);
+            background: var(--kimi-voyager-bg-tertiary, rgba(255, 255, 255, 0.15));
+            color: var(--kimi-voyager-text-secondary, rgba(255, 255, 255, 0.8));
           }
 
           .kimi-voyager-timeline-track-container {
@@ -1286,7 +1347,7 @@
             top: 0;
             bottom: 0;
             width: 2px;
-            background: rgba(255, 255, 255, 0.15);
+            background: var(--kimi-voyager-bg-tertiary, rgba(255, 255, 255, 0.15));
             transform: translateX(-50%);
           }
 
@@ -1301,7 +1362,7 @@
 
           .kimi-voyager-timeline-empty {
             font-size: 11px;
-            color: rgba(255, 255, 255, 0.3);
+            color: var(--kimi-voyager-text-muted, rgba(255, 255, 255, 0.3));
             padding: 10px 0;
           }
 
@@ -1338,13 +1399,13 @@
 
           /* Preview Tooltip */
           .kimi-voyager-timeline-preview {
-            background: rgba(31, 41, 55, 0.95);
+            background: var(--kimi-voyager-bg, rgba(31, 41, 55, 0.95));
             backdrop-filter: blur(8px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
             border-radius: 8px;
             padding: 10px 14px;
             max-width: 260px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            box-shadow: var(--kimi-voyager-shadow, 0 8px 32px rgba(0, 0, 0, 0.4));
             pointer-events: none;
             animation: previewFadeIn 0.15s ease;
           }
@@ -1356,17 +1417,17 @@
 
           .kimi-voyager-timeline-preview .preview-content {
             font-size: 13px;
-            color: #e5e7eb;
+            color: var(--kimi-voyager-text, #e5e7eb);
             line-height: 1.5;
             word-break: break-word;
           }
 
           /* Context Menu */
           .kimi-voyager-context-menu {
-            background: #374151;
+            background: var(--kimi-voyager-menu-bg, #374151);
             border-radius: 8px;
             padding: 4px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+            box-shadow: var(--kimi-voyager-shadow, 0 10px 40px rgba(0, 0, 0, 0.4));
             min-width: 140px;
             animation: menuFadeIn 0.15s ease;
           }
@@ -1379,14 +1440,14 @@
           .kimi-voyager-context-menu .menu-item {
             padding: 8px 12px;
             font-size: 13px;
-            color: #e5e7eb;
+            color: var(--kimi-voyager-text, #e5e7eb);
             cursor: pointer;
             border-radius: 6px;
             transition: all 0.2s;
           }
 
           .kimi-voyager-context-menu .menu-item:hover {
-            background: rgba(255, 255, 255, 0.1);
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.1));
           }
 
           /* Toast */
@@ -1544,15 +1605,15 @@
             padding: 8px 14px;
             margin-left: 10px;
             border: 1px solid rgba(255, 255, 255, 0.2);
-            background: rgba(255, 255, 255, 0.1);
-            color: #e5e7eb;
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.1));
+            color: var(--kimi-voyager-text, #e5e7eb);
             border-radius: 8px;
             cursor: pointer;
             font-size: 14px;
             transition: all 0.2s;
           }
           .kimi-timeline-export-btn:hover {
-            background: rgba(255, 255, 255, 0.2);
+            background: var(--kimi-voyager-bg-tertiary, rgba(255, 255, 255, 0.2));
           }
         `
       });
@@ -1683,10 +1744,10 @@
         styles: {
           marginBottom: '16px',
           padding: '12px',
-          background: 'rgba(255,255,255,0.05)',
+          background: 'var(--kimi-voyager-bg-hover, rgba(255,255,255,0.05))',
           borderRadius: '12px',
-          border: '1px solid rgba(255,255,255,0.1)',
-          color: '#e5e7eb',
+          border: '1px solid var(--kimi-voyager-border, rgba(255,255,255,0.1))',
+          color: 'var(--kimi-voyager-text, #e5e7eb)',
           fontSize: '14px',
           fontFamily: 'system-ui, -apple-system, sans-serif'
         },
@@ -1700,7 +1761,7 @@
               marginBottom: '12px'
             },
             children: [
-              createElement('span', { className: 'kimi-voyager-folders-title', text: '📁 我的文件夹', styles: { fontWeight: '600', fontSize: '14px', color: '#e5e7eb' } }),
+              createElement('span', { className: 'kimi-voyager-folders-title', text: '📁 我的文件夹', styles: { fontWeight: '600', fontSize: '14px', color: 'var(--kimi-voyager-text, #e5e7eb)' } }),
               createElement('div', {
                 className: 'kimi-voyager-folders-actions',
                 styles: { display: 'flex', alignItems: 'center', gap: '6px' },
@@ -1712,8 +1773,8 @@
                       width: '24px',
                       height: '24px',
                       border: 'none',
-                      background: 'rgba(255,255,255,0.1)',
-                      color: '#e5e7eb',
+                      background: 'var(--kimi-voyager-bg-hover, rgba(255,255,255,0.1))',
+                      color: 'var(--kimi-voyager-text, #e5e7eb)',
                       borderRadius: '6px',
                       cursor: 'pointer',
                       fontSize: '14px',
@@ -1755,8 +1816,8 @@
                 events: { click: () => this.toggleHiddenHistory() },
                 children: [
                   createElement('span', { className: 'hidden-history-title', text: '📂 所有对话', styles: { flex: '1', fontSize: '13px' } }),
-                  createElement('span', { className: 'hidden-history-count', text: '', styles: { fontSize: '12px', color: '#6b7280' } }),
-                  createElement('span', { className: 'hidden-history-arrow', text: '▶', styles: { fontSize: '10px', color: '#6b7280' } })
+                  createElement('span', { className: 'hidden-history-count', text: '', styles: { fontSize: '12px', color: 'var(--kimi-voyager-text-muted, #6b7280)' } }),
+                  createElement('span', { className: 'hidden-history-arrow', text: '▶', styles: { fontSize: '10px', color: 'var(--kimi-voyager-text-muted, #6b7280)' } })
                 ]
               }),
               createElement('div', {
@@ -2298,8 +2359,8 @@
           padding: '6px 10px',
           borderRadius: '6px',
           border: '1px solid rgba(255,255,255,0.2)',
-          background: 'rgba(255,255,255,0.1)',
-          color: '#e5e7eb',
+          background: 'var(--kimi-voyager-bg-hover, rgba(255,255,255,0.1))',
+          color: 'var(--kimi-voyager-text, #e5e7eb)',
           fontSize: '13px',
           boxSizing: 'border-box',
           marginBottom: '10px'
@@ -2321,7 +2382,7 @@
           borderRadius: '6px',
           border: '1px solid rgba(255,255,255,0.2)',
           background: 'transparent',
-          color: '#9ca3af',
+          color: 'var(--kimi-voyager-text-muted, #9ca3af)',
           fontSize: '13px',
           cursor: 'pointer'
         },
@@ -2377,7 +2438,7 @@
             styles: {
               fontSize: '14px',
               fontWeight: '600',
-              color: '#e5e7eb',
+              color: 'var(--kimi-voyager-text, #e5e7eb)',
               marginBottom: '10px'
             }
           }),
@@ -2386,7 +2447,7 @@
             text: '自定义颜色',
             styles: {
               fontSize: '12px',
-              color: '#9ca3af',
+              color: 'var(--kimi-voyager-text-muted, #9ca3af)',
               marginBottom: '6px'
             }
           }),
@@ -3574,7 +3635,7 @@
             e.stopPropagation();
             this.showFolderSelector(e, convId, title);
           },
-          mouseenter: (e) => { e.target.style.opacity = '1'; e.target.style.background = 'rgba(255,255,255,0.1)'; },
+          mouseenter: (e) => { e.target.style.opacity = '1'; e.target.style.background = 'var(--kimi-voyager-bg-hover, rgba(255,255,255,0.1))'; },
           mouseleave: (e) => { e.target.style.opacity = menuArea ? '0' : '0.6'; e.target.style.background = 'none'; }
         }
       });
@@ -3619,7 +3680,7 @@
               borderRadius: '8px',
               padding: '8px 14px',
               fontSize: '13px',
-              color: '#e5e7eb',
+              color: 'var(--kimi-voyager-text, #e5e7eb)',
               whiteSpace: 'nowrap',
               display: 'flex',
               alignItems: 'center',
@@ -3894,12 +3955,12 @@
           padding: '8px 16px',
           cursor: 'pointer',
           fontSize: '14px',
-          color: '#e5e7eb',
+          color: 'var(--kimi-voyager-text, #e5e7eb)',
           transition: 'background 0.2s',
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
-          borderTop: menuList.children.length > 0 ? '1px solid rgba(255,255,255,0.1)' : 'none'
+          borderTop: menuList.children.length > 0 ? '1px solid var(--kimi-voyager-border, rgba(255,255,255,0.1))' : 'none'
         },
         events: {
           click: (e) => {
@@ -3909,7 +3970,7 @@
             const overlay = document.querySelector('[class*="overlay"], [class*="backdrop"]');
             if (overlay) overlay.remove();
           },
-          mouseenter: (e) => { e.target.style.background = 'rgba(255,255,255,0.1)'; },
+          mouseenter: (e) => { e.target.style.background = 'var(--kimi-voyager-bg-hover, rgba(255,255,255,0.1))'; },
           mouseleave: (e) => { e.target.style.background = 'transparent'; }
         }
       });
@@ -4078,9 +4139,9 @@
           .kimi-voyager-folders {
             margin-bottom: 16px;
             padding: 12px;
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.05));
             border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
           }
           .kimi-voyager-folders-header {
             display: flex;
@@ -4091,7 +4152,7 @@
           .kimi-voyager-folders-title {
             font-weight: 600;
             font-size: 14px;
-            color: #e5e7eb;
+            color: var(--kimi-voyager-text, #e5e7eb);
           }
           .kimi-voyager-folders-add-btn {
             width: 24px;
@@ -4111,7 +4172,7 @@
           }
           .kimi-voyager-folders-empty {
             text-align: center;
-            color: #9ca3af;
+            color: var(--kimi-voyager-text-muted, #9ca3af);
             font-size: 13px;
             padding: 16px;
           }
@@ -4141,16 +4202,16 @@
             box-sizing: border-box;
           }
           .kimi-voyager-folder-item .folder-header:hover {
-            background: rgba(255, 255, 255, 0.08);
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.08));
           }
           .kimi-voyager-folder-item.expanded {
-            background: rgba(255, 255, 255, 0.03);
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.03));
           }
           .kimi-voyager-folder-item.expanded .folder-header {
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.05));
           }
           .kimi-voyager-folder-item.drag-over {
-            background: rgba(79, 70, 229, 0.2);
+            background: var(--kimi-voyager-bg-active, rgba(79, 70, 229, 0.2));
             border-color: #4f46e5;
             transform: scale(1.02);
           }
@@ -4188,16 +4249,16 @@
           }
           .hidden-history-item.dragging {
             opacity: 0.4 !important;
-            background: rgba(79, 70, 229, 0.1);
+            background: var(--kimi-voyager-bg-active, rgba(79, 70, 229, 0.1));
             border: 1px dashed rgba(79, 70, 229, 0.3);
           }
           .folder-conv-item.dragging {
             opacity: 0.4;
-            background: rgba(79, 70, 229, 0.1);
+            background: var(--kimi-voyager-bg-active, rgba(79, 70, 229, 0.1));
           }
           .folder-arrow {
             font-size: 10px;
-            color: #6b7280;
+            color: var(--kimi-voyager-text-muted, #6b7280);
             transition: transform 0.2s;
             width: 12px;
             text-align: center;
@@ -4206,12 +4267,12 @@
           .folder-name {
             flex: 1;
             font-size: 14px;
-            color: #e5e7eb;
+            color: var(--kimi-voyager-text, #e5e7eb);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
           }
-          .folder-count { font-size: 12px; color: #6b7280; }
+          .folder-count { font-size: 12px; color: var(--kimi-voyager-text-muted, #6b7280); }
           .folder-content {
             display: none;
             padding: 4px 4px 4px 32px;
@@ -4233,16 +4294,16 @@
             cursor: pointer;
             transition: all 0.2s;
             font-size: 12px;
-            color: #9ca3af;
+            color: var(--kimi-voyager-text-muted, #9ca3af);
             position: relative;
           }
           .folder-conv-item:hover {
-            background: rgba(255, 255, 255, 0.05);
-            color: #e5e7eb;
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.05));
+            color: var(--kimi-voyager-text, #e5e7eb);
           }
           .folder-conv-item.active {
-            background: rgba(79, 70, 229, 0.15);
-            color: #e5e7eb;
+            background: var(--kimi-voyager-bg-active, rgba(79, 70, 229, 0.15));
+            color: var(--kimi-voyager-text, #e5e7eb);
             border-left: 3px solid #4f46e5;
           }
           .folder-conv-item.dragging {
@@ -4250,7 +4311,7 @@
           }
           .folder-conv-drag-handle {
             font-size: 10px;
-            color: #4b5563;
+            color: var(--kimi-voyager-text-muted, #4b5563);
             cursor: grab;
             user-select: none;
             opacity: 0;
@@ -4282,7 +4343,7 @@
 
           /* Hidden History Section */
           .kimi-voyager-hidden-history-section {
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            border-top: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
             padding-top: 12px;
           }
           .kimi-voyager-hidden-history-header {
@@ -4295,17 +4356,17 @@
             transition: all 0.2s;
           }
           .kimi-voyager-hidden-history-header:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.05));
           }
           .hidden-history-icon { font-size: 14px; }
           .hidden-history-title {
             flex: 1;
             font-size: 13px;
-            color: #9ca3af;
+            color: var(--kimi-voyager-text-muted, #9ca3af);
           }
           .hidden-history-arrow {
             font-size: 10px;
-            color: #6b7280;
+            color: var(--kimi-voyager-text-muted, #6b7280);
             transition: transform 0.2s;
           }
           .kimi-voyager-hidden-history-content {
@@ -4317,7 +4378,7 @@
             width: 4px;
           }
           .kimi-voyager-hidden-history-content::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.15);
+            background: var(--kimi-voyager-bg-tertiary, rgba(255, 255, 255, 0.15));
             border-radius: 2px;
           }
           .hidden-history-loading,
@@ -4325,7 +4386,7 @@
             padding: 12px;
             text-align: center;
             font-size: 12px;
-            color: #6b7280;
+            color: var(--kimi-voyager-text-muted, #6b7280);
           }
           .hidden-history-list {
             display: flex;
@@ -4341,21 +4402,21 @@
             cursor: pointer;
             transition: all 0.2s;
             font-size: 12px;
-            color: #9ca3af;
+            color: var(--kimi-voyager-text-muted, #9ca3af);
           }
           .hidden-history-item:hover {
-            background: rgba(255, 255, 255, 0.05);
-            color: #e5e7eb;
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.05));
+            color: var(--kimi-voyager-text, #e5e7eb);
           }
           .hidden-history-item.active {
-            background: rgba(79, 70, 229, 0.15);
-            color: #e5e7eb;
+            background: var(--kimi-voyager-bg-active, rgba(79, 70, 229, 0.15));
+            color: var(--kimi-voyager-text, #e5e7eb);
             border-left: 3px solid #4f46e5;
           }
           .hidden-history-item-icon { font-size: 12px; }
           .hidden-history-drag-handle {
             font-size: 10px;
-            color: #4b5563;
+            color: var(--kimi-voyager-text-muted, #4b5563);
             cursor: grab;
             user-select: none;
             opacity: 0;
@@ -4376,15 +4437,15 @@
             text-align: center;
             padding: 10px;
             font-size: 12px;
-            color: #6b7280;
+            color: var(--kimi-voyager-text-muted, #6b7280);
             cursor: pointer;
             border-radius: 6px;
             margin-top: 4px;
             transition: all 0.2s;
           }
           .hidden-history-load-more:hover {
-            background: rgba(255, 255, 255, 0.05);
-            color: #e5e7eb;
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.05));
+            color: var(--kimi-voyager-text, #e5e7eb);
           }
 
           /* Submenu */
@@ -4393,11 +4454,11 @@
             position: absolute;
             left: 100%;
             top: 0;
-            background: #374151;
+            background: var(--kimi-voyager-menu-bg, #374151);
             border-radius: 8px;
             padding: 4px;
             min-width: 150px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            box-shadow: var(--kimi-voyager-shadow, 0 8px 32px rgba(0, 0, 0, 0.4));
           }
           .has-submenu {
             position: relative;
@@ -4408,18 +4469,18 @@
           .submenu-folder-item {
             padding: 8px 12px;
             font-size: 13px;
-            color: #e5e7eb;
+            color: var(--kimi-voyager-text, #e5e7eb);
             cursor: pointer;
             border-radius: 6px;
             white-space: nowrap;
           }
           .submenu-folder-item:hover {
-            background: rgba(255, 255, 255, 0.1);
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.1));
           }
           .submenu-empty {
             padding: 8px 12px;
             font-size: 12px;
-            color: #6b7280;
+            color: var(--kimi-voyager-text-muted, #6b7280);
           }
 
           /* Drag styles */
@@ -4441,13 +4502,13 @@
           
           /* Folder selector popup */
           .kimi-voyager-folder-selector {
-            background: rgba(31, 41, 55, 0.98);
+            background: var(--kimi-voyager-bg, rgba(31, 41, 55, 0.98));
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
             border-radius: 12px;
             padding: 8px;
             min-width: 180px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            box-shadow: var(--kimi-voyager-shadow, 0 10px 40px rgba(0, 0, 0, 0.5));
             animation: selectorFadeIn 0.15s ease;
           }
           
@@ -4459,23 +4520,23 @@
           .kimi-voyager-folder-selector .selector-header {
             font-size: 12px;
             font-weight: 600;
-            color: #9ca3af;
+            color: var(--kimi-voyager-text-muted, #9ca3af);
             padding: 8px 12px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
             margin-bottom: 4px;
           }
           
           .kimi-voyager-folder-selector .selector-empty {
             padding: 12px;
             font-size: 13px;
-            color: #6b7280;
+            color: var(--kimi-voyager-text-muted, #6b7280);
             text-align: center;
           }
           
           .kimi-voyager-folder-selector .selector-folder-item {
             padding: 10px 12px;
             font-size: 13px;
-            color: #e5e7eb;
+            color: var(--kimi-voyager-text, #e5e7eb);
             cursor: pointer;
             border-radius: 8px;
             transition: all 0.2s;
@@ -4483,7 +4544,7 @@
           }
           
           .kimi-voyager-folder-selector .selector-folder-item:hover {
-            background: rgba(79, 70, 229, 0.2);
+            background: var(--kimi-voyager-bg-active, rgba(79, 70, 229, 0.2));
             color: #fff;
           }
           
@@ -4493,21 +4554,21 @@
             color: #4f46e5;
             cursor: pointer;
             border-radius: 8px;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            border-top: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
             margin-top: 4px;
             font-weight: 500;
           }
           
           .kimi-voyager-folder-selector .selector-new-folder:hover {
-            background: rgba(79, 70, 229, 0.1);
+            background: var(--kimi-voyager-bg-active, rgba(79, 70, 229, 0.1));
           }
           
           /* Context Menu */
           .kimi-voyager-context-menu {
-            background: #374151;
+            background: var(--kimi-voyager-menu-bg, #374151);
             border-radius: 8px;
             padding: 4px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+            box-shadow: var(--kimi-voyager-shadow, 0 10px 40px rgba(0, 0, 0, 0.4));
             min-width: 140px;
             animation: menuFadeIn 0.15s ease;
           }
@@ -4518,13 +4579,13 @@
           .kimi-voyager-context-menu .menu-item {
             padding: 8px 12px;
             font-size: 13px;
-            color: #e5e7eb;
+            color: var(--kimi-voyager-text, #e5e7eb);
             cursor: pointer;
             border-radius: 6px;
             transition: all 0.2s;
           }
           .kimi-voyager-context-menu .menu-item:hover {
-            background: rgba(255, 255, 255, 0.1);
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.1));
           }
           .kimi-voyager-context-menu .menu-item.danger {
             color: #ef4444;
@@ -4535,26 +4596,26 @@
 
           /* Folder top menu */
           .kimi-voyager-folder-menu {
-            background: #374151;
+            background: var(--kimi-voyager-menu-bg, #374151);
             border-radius: 8px;
             padding: 4px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+            box-shadow: var(--kimi-voyager-shadow, 0 10px 40px rgba(0, 0, 0, 0.4));
             min-width: 180px;
             animation: menuFadeIn 0.15s ease;
           }
           .kimi-voyager-folder-menu .menu-item {
             padding: 8px 12px;
             font-size: 13px;
-            color: #e5e7eb;
+            color: var(--kimi-voyager-text, #e5e7eb);
             cursor: pointer;
             border-radius: 6px;
             transition: all 0.2s;
           }
           .kimi-voyager-folder-menu .menu-item:hover {
-            background: rgba(255, 255, 255, 0.1);
+            background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.1));
           }
           .kimi-voyager-folders-menu-btn:hover {
-            background: rgba(255, 255, 255, 0.2) !important;
+            background: var(--kimi-voyager-bg-tertiary, rgba(255, 255, 255, 0.2)) !important;
           }
 
           /* Custom mouse drag ghost */

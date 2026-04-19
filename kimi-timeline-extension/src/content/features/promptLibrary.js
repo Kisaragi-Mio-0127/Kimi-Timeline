@@ -388,48 +388,48 @@ export class PromptLibrary {
           transition: all 0.2s;
           z-index: 100;
         }
-        
+
         .kimi-voyager-prompt-btn:hover {
           background: #4338ca;
           transform: scale(1.1);
         }
-        
+
         .kimi-voyager-prompt-panel {
           position: fixed;
           right: -400px;
           top: 0;
           width: 400px;
           height: 100vh;
-          background: #1f2937;
-          box-shadow: -10px 0 40px rgba(0, 0, 0, 0.4);
+          background: var(--kimi-voyager-bg, #1f2937);
+          box-shadow: var(--kimi-voyager-shadow, -10px 0 40px rgba(0, 0, 0, 0.4));
           z-index: 10000;
           display: flex;
           flex-direction: column;
           transition: right 0.3s ease;
         }
-        
+
         .kimi-voyager-prompt-panel.open {
           right: 0;
         }
-        
+
         .kimi-voyager-prompt-panel-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
           padding: 16px 20px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          border-bottom: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
         }
-        
+
         .kimi-voyager-prompt-panel-header h3 {
           margin: 0;
           font-size: 18px;
-          color: #e5e7eb;
+          color: var(--kimi-voyager-text, #e5e7eb);
         }
-        
+
         .kimi-voyager-prompt-panel-header .close-btn {
           background: none;
           border: none;
-          color: #9ca3af;
+          color: var(--kimi-voyager-text-muted, #9ca3af);
           font-size: 24px;
           cursor: pointer;
           width: 32px;
@@ -440,89 +440,89 @@ export class PromptLibrary {
           border-radius: 8px;
           transition: all 0.2s;
         }
-        
+
         .kimi-voyager-prompt-panel-header .close-btn:hover {
-          background: rgba(255, 255, 255, 0.1);
-          color: #e5e7eb;
+          background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.1));
+          color: var(--kimi-voyager-text, #e5e7eb);
         }
-        
+
         .kimi-voyager-prompt-search {
           padding: 16px 20px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          border-bottom: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
         }
-        
+
         .kimi-voyager-prompt-search input {
           width: 100%;
           padding: 10px 14px;
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          border: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
           border-radius: 8px;
-          background: rgba(255, 255, 255, 0.05);
-          color: #e5e7eb;
+          background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.05));
+          color: var(--kimi-voyager-text, #e5e7eb);
           font-size: 14px;
         }
-        
+
         .kimi-voyager-prompt-search input:focus {
           outline: none;
           border-color: #4f46e5;
         }
-        
+
         .kimi-voyager-prompt-search input::placeholder {
-          color: #6b7280;
+          color: var(--kimi-voyager-text-muted, #6b7280);
         }
-        
+
         .kimi-voyager-prompt-list {
           flex: 1;
           overflow-y: auto;
           padding: 12px;
         }
-        
+
         .kimi-voyager-prompt-empty {
           text-align: center;
           padding: 40px 20px;
-          color: #6b7280;
+          color: var(--kimi-voyager-text-muted, #6b7280);
           font-size: 14px;
         }
-        
+
         .kimi-voyager-prompt-item {
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.05));
+          border: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
           border-radius: 10px;
           padding: 14px;
           margin-bottom: 10px;
           cursor: pointer;
           transition: all 0.2s;
         }
-        
+
         .kimi-voyager-prompt-item:hover {
-          background: rgba(255, 255, 255, 0.08);
+          background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.08));
           border-color: rgba(79, 70, 229, 0.5);
           transform: translateX(-4px);
         }
-        
+
         .prompt-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
           margin-bottom: 8px;
         }
-        
+
         .prompt-title {
           font-weight: 600;
           font-size: 14px;
-          color: #e5e7eb;
+          color: var(--kimi-voyager-text, #e5e7eb);
         }
-        
+
         .prompt-actions {
           display: flex;
           gap: 4px;
           opacity: 0;
           transition: opacity 0.2s;
         }
-        
+
         .kimi-voyager-prompt-item:hover .prompt-actions {
           opacity: 1;
         }
-        
+
         .prompt-action-btn {
           background: none;
           border: none;
@@ -533,25 +533,25 @@ export class PromptLibrary {
           opacity: 0.7;
           transition: all 0.2s;
         }
-        
+
         .prompt-action-btn:hover {
           opacity: 1;
-          background: rgba(255, 255, 255, 0.1);
+          background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.1));
         }
-        
+
         .prompt-preview {
           font-size: 13px;
-          color: #9ca3af;
+          color: var(--kimi-voyager-text-muted, #9ca3af);
           line-height: 1.5;
           margin-bottom: 8px;
         }
-        
+
         .prompt-tags {
           display: flex;
           gap: 6px;
           flex-wrap: wrap;
         }
-        
+
         .prompt-tag {
           font-size: 11px;
           padding: 3px 8px;
@@ -559,61 +559,61 @@ export class PromptLibrary {
           color: #818cf8;
           border-radius: 4px;
         }
-        
+
         .kimi-voyager-prompt-panel-footer {
           padding: 16px 20px;
-          border-top: 1px solid rgba(255, 255, 255, 0.1);
+          border-top: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
         }
-        
+
         .add-prompt-btn {
           width: 100%;
           padding: 12px;
-          border: 2px dashed rgba(255, 255, 255, 0.2);
+          border: 2px dashed var(--kimi-voyager-border-strong, rgba(255, 255, 255, 0.2));
           background: transparent;
-          color: #9ca3af;
+          color: var(--kimi-voyager-text-muted, #9ca3af);
           border-radius: 10px;
           cursor: pointer;
           font-size: 14px;
           transition: all 0.2s;
         }
-        
+
         .add-prompt-btn:hover {
           border-color: #4f46e5;
           color: #4f46e5;
           background: rgba(79, 70, 229, 0.05);
         }
-        
+
         /* 表单样式 */
         .kimi-voyager-form .form-group {
           margin-bottom: 16px;
         }
-        
+
         .kimi-voyager-form label {
           display: block;
           font-size: 13px;
           font-weight: 500;
-          color: #9ca3af;
+          color: var(--kimi-voyager-text-muted, #9ca3af);
           margin-bottom: 6px;
         }
-        
+
         .kimi-voyager-form input,
         .kimi-voyager-form textarea {
           width: 100%;
           padding: 10px 12px;
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          border: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
           border-radius: 8px;
-          background: rgba(255, 255, 255, 0.05);
-          color: #e5e7eb;
+          background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.05));
+          color: var(--kimi-voyager-text, #e5e7eb);
           font-size: 14px;
           font-family: inherit;
         }
-        
+
         .kimi-voyager-form input:focus,
         .kimi-voyager-form textarea:focus {
           outline: none;
           border-color: #4f46e5;
         }
-        
+
         .kimi-voyager-form textarea {
           resize: vertical;
           min-height: 100px;

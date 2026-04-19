@@ -387,79 +387,80 @@ export class Timeline {
           top: 80px;
           bottom: 80px;
           width: 220px;
-          background: rgba(31, 41, 55, 0.98);
+          background: var(--kimi-voyager-bg, rgba(31, 41, 55, 0.98));
           backdrop-filter: blur(10px);
           border-radius: 12px;
           padding: 12px;
-          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+          box-shadow: var(--kimi-voyager-shadow, 0 10px 40px rgba(0, 0, 0, 0.5));
           z-index: 9999;
           display: flex;
           flex-direction: column;
+          border: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
         }
-        
+
         .kimi-voyager-timeline.minimized {
           width: auto;
           height: auto;
           bottom: auto;
         }
-        
+
         .kimi-voyager-timeline.minimized .kimi-voyager-timeline-content {
           display: none;
         }
-        
+
         .kimi-voyager-timeline-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
           margin-bottom: 12px;
           padding-bottom: 8px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          border-bottom: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
           flex-shrink: 0;
         }
-        
+
         .kimi-voyager-timeline-header span {
           font-size: 13px;
           font-weight: 600;
-          color: #e5e7eb;
+          color: var(--kimi-voyager-text, #e5e7eb);
         }
-        
+
         .kimi-voyager-timeline-toggle {
           width: 24px;
           height: 24px;
           border: none;
-          background: rgba(255, 255, 255, 0.1);
-          color: #e5e7eb;
+          background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.1));
+          color: var(--kimi-voyager-text, #e5e7eb);
           border-radius: 6px;
           cursor: pointer;
           font-size: 14px;
           line-height: 1;
           transition: all 0.2s;
         }
-        
+
         .kimi-voyager-timeline-toggle:hover {
-          background: rgba(255, 255, 255, 0.2);
+          background: var(--kimi-voyager-bg-tertiary, rgba(255, 255, 255, 0.2));
         }
-        
+
         .kimi-voyager-timeline-content {
           overflow-y: auto;
           flex: 1;
           display: flex;
           flex-direction: column;
         }
-        
+
         .kimi-voyager-timeline-empty {
           font-size: 13px;
-          color: #6b7280;
+          color: var(--kimi-voyager-text-muted, #6b7280);
           text-align: center;
           padding: 20px 0;
         }
-        
+
         .kimi-voyager-timeline-list {
           display: flex;
           flex-direction: column;
           gap: 4px;
         }
-        
+
         .kimi-voyager-timeline-item {
           display: flex;
           align-items: flex-start;
@@ -469,44 +470,44 @@ export class Timeline {
           cursor: pointer;
           transition: all 0.2s;
           font-size: 12px;
-          color: #9ca3af;
+          color: var(--kimi-voyager-text-muted, #9ca3af);
           line-height: 1.4;
           position: relative;
         }
-        
+
         .kimi-voyager-timeline-item:hover {
-          background: rgba(255, 255, 255, 0.08);
-          color: #e5e7eb;
+          background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.08));
+          color: var(--kimi-voyager-text, #e5e7eb);
         }
-        
+
         .kimi-voyager-timeline-item.active {
-          background: rgba(79, 70, 229, 0.25);
-          color: #e5e7eb;
+          background: var(--kimi-voyager-bg-active, rgba(79, 70, 229, 0.25));
+          color: var(--kimi-voyager-text, #e5e7eb);
           border-left: 3px solid #4f46e5;
         }
-        
+
         .kimi-voyager-timeline-item.starred {
           background: rgba(251, 191, 36, 0.1);
         }
-        
+
         .kimi-voyager-timeline-item.starred::before {
           content: '⭐';
           position: absolute;
           right: 8px;
           font-size: 10px;
         }
-        
+
         .timeline-item-number {
           flex-shrink: 0;
           font-weight: 600;
-          color: #6b7280;
+          color: var(--kimi-voyager-text-muted, #6b7280);
           min-width: 20px;
         }
-        
+
         .kimi-voyager-timeline-item.active .timeline-item-number {
           color: #4f46e5;
         }
-        
+
         .timeline-item-text {
           flex: 1;
           overflow: hidden;
@@ -515,62 +516,62 @@ export class Timeline {
           -webkit-box-orient: vertical;
           word-break: break-word;
         }
-        
+
         .kimi-voyager-timeline-stats {
           font-size: 11px;
-          color: #6b7280;
+          color: var(--kimi-voyager-text-muted, #6b7280);
           text-align: center;
           margin-top: 8px;
           padding-top: 8px;
-          border-top: 1px solid rgba(255, 255, 255, 0.1);
+          border-top: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
           flex-shrink: 0;
         }
-        
+
         .kimi-voyager-timeline-menu {
-          background: #374151;
+          background: var(--kimi-voyager-menu-bg, #374151);
           border-radius: 8px;
           padding: 4px;
-          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+          box-shadow: var(--kimi-voyager-shadow, 0 10px 40px rgba(0, 0, 0, 0.4));
           min-width: 120px;
         }
-        
+
         .kimi-voyager-timeline-menu .menu-item {
           padding: 8px 12px;
           font-size: 13px;
-          color: #e5e7eb;
+          color: var(--kimi-voyager-text, #e5e7eb);
           cursor: pointer;
           border-radius: 6px;
           transition: all 0.2s;
         }
-        
+
         .kimi-voyager-timeline-menu .menu-item:hover {
-          background: rgba(255, 255, 255, 0.1);
+          background: var(--kimi-voyager-menu-hover, rgba(255, 255, 255, 0.1));
         }
-        
+
         .kimi-voyager-timeline-menu .menu-item.divider {
           height: 1px;
           padding: 0;
           margin: 4px 0;
-          background: rgba(255, 255, 255, 0.1);
+          background: var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
           pointer-events: none;
         }
-        
+
         /* 滚动条样式 */
         .kimi-voyager-timeline-content::-webkit-scrollbar {
           width: 4px;
         }
-        
+
         .kimi-voyager-timeline-content::-webkit-scrollbar-track {
           background: transparent;
         }
-        
+
         .kimi-voyager-timeline-content::-webkit-scrollbar-thumb {
-          background: rgba(255, 255, 255, 0.15);
+          background: var(--kimi-voyager-scrollbar, rgba(255, 255, 255, 0.15));
           border-radius: 2px;
         }
-        
+
         .kimi-voyager-timeline-content::-webkit-scrollbar-thumb:hover {
-          background: rgba(255, 255, 255, 0.25);
+          background: var(--kimi-voyager-scrollbar-hover, rgba(255, 255, 255, 0.25));
         }
       `
     });

@@ -29,14 +29,23 @@ async function loadSettings() {
 
 // 应用设置到表单
 function applySettings(settings) {
-  document.getElementById('enable-folders').checked = settings.enableFolderManagement !== false;
-  document.getElementById('enable-timeline').checked = settings.enableTimeline !== false;
-  document.getElementById('enable-prompts').checked = settings.enablePromptLibrary !== false;
-  document.getElementById('enable-export').checked = settings.enableExport !== false;
-  document.getElementById('theme').value = settings.theme || 'auto';
-  document.getElementById('visual-effect').value = settings.visualEffect || 'none';
-  document.getElementById('default-include-timestamp').checked = settings.defaultIncludeTimestamp !== false;
-  document.getElementById('default-include-metadata').checked = settings.defaultIncludeMetadata === true;
+  const setChecked = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = value;
+  };
+  const setValue = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+  };
+
+  setChecked('enable-folders', settings.enableFolderManagement !== false);
+  setChecked('enable-timeline', settings.enableTimeline !== false);
+  setChecked('enable-prompts', settings.enablePromptLibrary !== false);
+  setChecked('enable-export', settings.enableExport !== false);
+  setValue('theme', settings.theme || 'auto');
+  setValue('visual-effect', settings.visualEffect || 'none');
+  setChecked('default-include-timestamp', settings.defaultIncludeTimestamp !== false);
+  setChecked('default-include-metadata', settings.defaultIncludeMetadata === true);
 }
 
 // 保存设置

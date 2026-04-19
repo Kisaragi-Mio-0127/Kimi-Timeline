@@ -527,89 +527,89 @@ export class ExportManager {
           gap: 6px;
           padding: 8px 14px;
           margin-left: 10px;
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          background: rgba(255, 255, 255, 0.1);
-          color: #e5e7eb;
+          border: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.2));
+          background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.1));
+          color: var(--kimi-voyager-text, #e5e7eb);
           border-radius: 8px;
           cursor: pointer;
           font-size: 14px;
           transition: all 0.2s;
         }
-        
+
         .kimi-voyager-export-btn:hover {
-          background: rgba(255, 255, 255, 0.2);
-          border-color: rgba(255, 255, 255, 0.3);
+          background: var(--kimi-voyager-bg-tertiary, rgba(255, 255, 255, 0.2));
+          border-color: var(--kimi-voyager-border-strong, rgba(255, 255, 255, 0.3));
         }
-        
+
         .kimi-voyager-export-options {
           padding: 10px 0;
         }
-        
+
         .kimi-voyager-export-options > p {
           margin-bottom: 16px;
-          color: #6b7280;
+          color: var(--kimi-voyager-text-muted, #6b7280);
           font-size: 14px;
         }
-        
+
         .export-formats {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
           gap: 12px;
           margin-bottom: 20px;
         }
-        
+
         .export-format-card {
           display: flex;
           flex-direction: column;
           align-items: center;
           gap: 8px;
           padding: 20px 16px;
-          border: 2px solid #e5e7eb;
+          border: 2px solid var(--kimi-voyager-border-strong, #e5e7eb);
           border-radius: 12px;
-          background: white;
+          background: var(--kimi-voyager-menu-bg, #fff);
           cursor: pointer;
           transition: all 0.2s;
         }
-        
+
         .export-format-card:hover {
           border-color: #4f46e5;
-          background: #f5f3ff;
+          background: var(--kimi-voyager-bg-active, #f5f3ff);
           transform: translateY(-2px);
         }
-        
+
         .export-format-card .format-icon {
           font-size: 32px;
         }
-        
+
         .export-format-card .format-name {
           font-weight: 600;
           font-size: 14px;
-          color: #374151;
+          color: var(--kimi-voyager-text-secondary, #374151);
         }
-        
+
         .export-format-card .format-desc {
           font-size: 12px;
-          color: #6b7280;
+          color: var(--kimi-voyager-text-muted, #6b7280);
           text-align: center;
         }
-        
+
         .export-options {
           display: flex;
           flex-direction: column;
           gap: 10px;
           padding-top: 16px;
-          border-top: 1px solid #e5e7eb;
+          border-top: 1px solid var(--kimi-voyager-border-strong, #e5e7eb);
         }
-        
+
         .checkbox-label {
           display: flex;
           align-items: center;
           gap: 8px;
           font-size: 14px;
-          color: #374151;
+          color: var(--kimi-voyager-text-secondary, #374151);
           cursor: pointer;
         }
-        
+
         .checkbox-label input[type="checkbox"] {
           width: 18px;
           height: 18px;

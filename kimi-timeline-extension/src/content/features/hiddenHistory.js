@@ -352,7 +352,7 @@ export class HiddenHistory {
           border-radius: 8px;
           overflow: hidden;
         }
-        
+
         .kimi-voyager-hidden-history-header {
           display: flex;
           align-items: center;
@@ -362,54 +362,54 @@ export class HiddenHistory {
           transition: all 0.2s;
           border-radius: 8px;
         }
-        
+
         .kimi-voyager-hidden-history-header:hover {
-          background: rgba(255, 255, 255, 0.05);
+          background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.05));
         }
-        
+
         .hidden-history-icon {
           font-size: 14px;
         }
-        
+
         .hidden-history-title {
           flex: 1;
           font-size: 14px;
-          color: #9ca3af;
+          color: var(--kimi-voyager-text-muted, #9ca3af);
         }
-        
+
         .hidden-history-count {
           font-size: 12px;
-          color: #6b7280;
+          color: var(--kimi-voyager-text-muted, #6b7280);
         }
-        
+
         .hidden-history-arrow {
           font-size: 10px;
-          color: #6b7280;
+          color: var(--kimi-voyager-text-muted, #6b7280);
         }
-        
+
         .kimi-voyager-hidden-history-content {
           padding: 8px 0 8px 24px;
         }
-        
+
         .hidden-history-loading,
         .hidden-history-empty,
         .hidden-history-error {
           padding: 16px;
           text-align: center;
           font-size: 13px;
-          color: #6b7280;
+          color: var(--kimi-voyager-text-muted, #6b7280);
         }
-        
+
         .hidden-history-error {
           color: #ef4444;
         }
-        
+
         .hidden-history-list {
           display: flex;
           flex-direction: column;
           gap: 4px;
         }
-        
+
         .hidden-history-item {
           display: flex;
           align-items: center;
@@ -419,14 +419,14 @@ export class HiddenHistory {
           cursor: pointer;
           transition: all 0.2s;
           font-size: 13px;
-          color: #9ca3af;
+          color: var(--kimi-voyager-text-muted, #9ca3af);
         }
-        
+
         .hidden-history-item:hover {
-          background: rgba(255, 255, 255, 0.05);
-          color: #e5e7eb;
+          background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.05));
+          color: var(--kimi-voyager-text, #e5e7eb);
         }
-        
+
         .hidden-history-item-title {
           white-space: nowrap;
           overflow: hidden;

@@ -732,24 +732,24 @@ export class FolderManager {
       .kimi-voyager-folders {
         margin-bottom: 16px;
         padding: 12px;
-        background: rgba(255, 255, 255, 0.05);
+        background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.05));
         border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
       }
-      
+
       .kimi-voyager-folders-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: 12px;
       }
-      
+
       .kimi-voyager-folders-title {
         font-weight: 600;
         font-size: 14px;
-        color: #e5e7eb;
+        color: var(--kimi-voyager-text, #e5e7eb);
       }
-      
+
       .kimi-voyager-folders-add-btn {
         width: 24px;
         height: 24px;
@@ -762,45 +762,45 @@ export class FolderManager {
         line-height: 1;
         transition: all 0.2s;
       }
-      
+
       .kimi-voyager-folders-add-btn:hover {
         background: #4338ca;
         transform: scale(1.1);
       }
-      
+
       .kimi-voyager-folders-empty {
         text-align: center;
-        color: #9ca3af;
+        color: var(--kimi-voyager-text-muted, #9ca3af);
         font-size: 13px;
         padding: 16px;
       }
-      
+
       .kimi-voyager-folder-item {
         margin-bottom: 4px;
         border-radius: 8px;
         transition: all 0.2s;
         border: 2px solid transparent;
       }
-      
+
       .kimi-voyager-folder-item:hover {
-        background: rgba(255, 255, 255, 0.05);
+        background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.05));
       }
-      
+
       .kimi-voyager-folder-item.drag-over {
-        background: rgba(79, 70, 229, 0.2);
+        background: var(--kimi-voyager-bg-active, rgba(79, 70, 229, 0.2));
         border-color: #4f46e5;
       }
-      
+
       /* 拖拽时的对话项样式 */
       a[draggable="true"].dragging {
         opacity: 0.5;
         cursor: grabbing;
       }
-      
+
       a[draggable="true"] {
         cursor: grab;
       }
-      
+
       .kimi-voyager-folder-header {
         display: flex;
         align-items: center;
@@ -812,170 +812,172 @@ export class FolderManager {
         width: 100%;
         box-sizing: border-box;
       }
-      
+
       .kimi-voyager-folder-arrow {
         font-size: 10px;
-        color: #9ca3af;
+        color: var(--kimi-voyager-text-muted, #9ca3af);
         width: 12px;
         text-align: center;
         transition: transform 0.2s;
       }
-      
+
       .kimi-voyager-folder-item.expanded > .kimi-voyager-folder-header .kimi-voyager-folder-arrow {
         transform: rotate(90deg);
       }
-      
+
       .kimi-voyager-folder-icon {
         font-size: 16px;
       }
-      
+
       .kimi-voyager-folder-name {
         flex: 1;
         font-size: 14px;
-        color: #e5e7eb;
+        color: var(--kimi-voyager-text, #e5e7eb);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
-      
+
       .kimi-voyager-folder-count {
         font-size: 12px;
-        color: #6b7280;
+        color: var(--kimi-voyager-text-muted, #6b7280);
       }
-      
+
       .kimi-voyager-folder-actions {
         opacity: 0;
         transition: opacity 0.2s;
       }
-      
+
       .kimi-voyager-folder-item:hover .kimi-voyager-folder-actions {
         opacity: 1;
       }
-      
+
       .kimi-voyager-folder-action-btn {
         background: none;
         border: none;
-        color: #9ca3af;
+        color: var(--kimi-voyager-text-muted, #9ca3af);
         cursor: pointer;
         padding: 4px;
         border-radius: 4px;
       }
-      
+
       .kimi-voyager-folder-action-btn:hover {
-        background: rgba(255, 255, 255, 0.1);
-        color: #e5e7eb;
+        background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.1));
+        color: var(--kimi-voyager-text, #e5e7eb);
       }
-      
+
       .kimi-voyager-folder-content {
         margin-left: 24px;
-        border-left: 1px solid rgba(255, 255, 255, 0.1);
+        border-left: 1px solid var(--kimi-voyager-border, rgba(255, 255, 255, 0.1));
         padding-left: 8px;
       }
-      
+
       .kimi-voyager-conversation-item {
         display: flex;
         align-items: center;
         gap: 8px;
         padding: 6px 8px;
         font-size: 13px;
-        color: #9ca3af;
+        color: var(--kimi-voyager-text-muted, #9ca3af);
         cursor: pointer;
         border-radius: 6px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
-      
+
       .kimi-voyager-conversation-item:hover {
-        background: rgba(255, 255, 255, 0.05);
-        color: #e5e7eb;
+        background: var(--kimi-voyager-bg-hover, rgba(255, 255, 255, 0.05));
+        color: var(--kimi-voyager-text, #e5e7eb);
       }
-      
+
       .kimi-voyager-conversation-item.active {
-        background: rgba(79, 70, 229, 0.15);
-        color: #e5e7eb;
+        background: var(--kimi-voyager-bg-active, rgba(79, 70, 229, 0.15));
+        color: var(--kimi-voyager-text, #e5e7eb);
         border-left: 3px solid #4f46e5;
       }
-      
+
       .kimi-voyager-context-menu {
-        background: #374151;
+        background: var(--kimi-voyager-menu-bg, #374151);
         border-radius: 8px;
         padding: 4px;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+        box-shadow: var(--kimi-voyager-shadow, 0 10px 40px rgba(0, 0, 0, 0.4));
         min-width: 150px;
       }
-      
+
       .kimi-voyager-menu-item {
         padding: 8px 12px;
         font-size: 14px;
-        color: #e5e7eb;
+        color: var(--kimi-voyager-text, #e5e7eb);
         cursor: pointer;
         border-radius: 6px;
         transition: all 0.2s;
       }
-      
+
       .kimi-voyager-menu-item:hover {
-        background: rgba(255, 255, 255, 0.1);
+        background: var(--kimi-voyager-menu-hover, rgba(255, 255, 255, 0.1));
       }
-      
+
       .kimi-voyager-menu-item.danger {
         color: #ef4444;
       }
-      
+
       .kimi-voyager-menu-item.danger:hover {
         background: rgba(239, 68, 68, 0.1);
       }
-      
+
       /* 表单样式 */
       .kimi-voyager-form .form-group {
         margin-bottom: 16px;
       }
-      
+
       .kimi-voyager-form label {
         display: block;
         font-size: 13px;
         font-weight: 500;
-        color: #6b7280;
+        color: var(--kimi-voyager-text-muted, #6b7280);
         margin-bottom: 8px;
       }
-      
+
       .kimi-voyager-form input {
         width: 100%;
         padding: 10px 12px;
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--kimi-voyager-border-strong, #e5e7eb);
         border-radius: 8px;
         font-size: 14px;
+        background: var(--kimi-voyager-menu-bg, #fff);
+        color: var(--kimi-voyager-text, #111827);
       }
-      
+
       .kimi-voyager-form input:focus {
         outline: none;
         border-color: #4f46e5;
       }
-      
+
       .icon-selector, .color-selector {
         display: flex;
         gap: 8px;
         flex-wrap: wrap;
       }
-      
+
       .icon-btn, .color-btn {
         width: 36px;
         height: 36px;
-        border: 2px solid #e5e7eb;
+        border: 2px solid var(--kimi-voyager-border-strong, #e5e7eb);
         border-radius: 8px;
-        background: white;
+        background: var(--kimi-voyager-menu-bg, #fff);
         cursor: pointer;
         transition: all 0.2s;
         display: flex;
         align-items: center;
         justify-content: center;
       }
-      
+
       .icon-btn.selected, .color-btn.selected {
         border-color: #4f46e5;
         box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
       }
-      
+
       .icon-btn {
         font-size: 18px;
       }

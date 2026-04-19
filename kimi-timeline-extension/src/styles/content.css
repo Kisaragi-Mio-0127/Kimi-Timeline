@@ -1,17 +1,125 @@
 /**
  * Kimi Voyager - Content Styles
- * 内容脚本的样式
+ * 内容脚本的样式 - 支持浅色/暗色模式自适应
+ *
+ * 主题切换方式（优先级从高到低）：
+ * 1. html[data-kv-theme="light"] / [data-kv-theme="dark"] —— 由 JS 根据 Kimi 页面实际主题设置
+ * 2. @media (prefers-color-scheme) —— 系统主题（当 JS 未设置时生效）
+ * 3. 默认暗色 —— 兼容旧版本/未启用检测的情况
  */
 
-/* 基础变量 */
+/* ========== 默认变量（暗色模式，保持向后兼容） ========== */
 :root {
   --kimi-voyager-primary: #4f46e5;
   --kimi-voyager-primary-hover: #4338ca;
-  --kimi-voyager-bg-dark: rgba(31, 41, 55, 0.95);
-  --kimi-voyager-text-light: #e5e7eb;
+
+  /* 背景 */
+  --kimi-voyager-bg: rgba(31, 41, 55, 0.95);
+  --kimi-voyager-bg-secondary: #374151;
+  --kimi-voyager-bg-tertiary: #4b5563;
+  --kimi-voyager-bg-hover: rgba(255, 255, 255, 0.08);
+  --kimi-voyager-bg-active: rgba(79, 70, 229, 0.2);
+
+  /* 文字 */
+  --kimi-voyager-text: #e5e7eb;
+  --kimi-voyager-text-secondary: #d1d5db;
   --kimi-voyager-text-muted: #9ca3af;
+
+  /* 边框 */
   --kimi-voyager-border: rgba(255, 255, 255, 0.1);
+  --kimi-voyager-border-strong: #4b5563;
+
+  /* 阴影 */
   --kimi-voyager-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+
+  /* 菜单/面板 */
+  --kimi-voyager-menu-bg: #374151;
+  --kimi-voyager-menu-hover: rgba(255, 255, 255, 0.1);
+
+  /* 滚动条 */
+  --kimi-voyager-scrollbar: rgba(255, 255, 255, 0.2);
+  --kimi-voyager-scrollbar-hover: rgba(255, 255, 255, 0.3);
+}
+
+/* ========== 系统浅色模式（当 JS 未显式设置 data-kv-theme 时） ========== */
+@media (prefers-color-scheme: light) {
+  :root:not([data-kv-theme]),
+  :root[data-kv-theme="auto"] {
+    --kimi-voyager-bg: rgba(255, 255, 255, 0.95);
+    --kimi-voyager-bg-secondary: #f3f4f6;
+    --kimi-voyager-bg-tertiary: #e5e7eb;
+    --kimi-voyager-bg-hover: rgba(0, 0, 0, 0.04);
+    --kimi-voyager-bg-active: rgba(79, 70, 229, 0.1);
+
+    --kimi-voyager-text: #111827;
+    --kimi-voyager-text-secondary: #4b5563;
+    --kimi-voyager-text-muted: #6b7280;
+
+    --kimi-voyager-border: rgba(0, 0, 0, 0.08);
+    --kimi-voyager-border-strong: #d1d5db;
+
+    --kimi-voyager-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+
+    --kimi-voyager-menu-bg: #fff;
+    --kimi-voyager-menu-hover: rgba(0, 0, 0, 0.04);
+
+    --kimi-voyager-scrollbar: rgba(0, 0, 0, 0.15);
+    --kimi-voyager-scrollbar-hover: rgba(0, 0, 0, 0.25);
+  }
+}
+
+/* ========== JS 显式设置浅色模式（优先级最高） ========== */
+:root[data-kv-theme="light"] {
+  --kimi-voyager-bg: rgba(255, 255, 255, 0.95);
+  --kimi-voyager-bg-secondary: #f3f4f6;
+  --kimi-voyager-bg-tertiary: #e5e7eb;
+  --kimi-voyager-bg-hover: rgba(0, 0, 0, 0.04);
+  --kimi-voyager-bg-active: rgba(79, 70, 229, 0.1);
+
+  --kimi-voyager-text: #111827;
+  --kimi-voyager-text-secondary: #4b5563;
+  --kimi-voyager-text-muted: #6b7280;
+
+  --kimi-voyager-border: rgba(0, 0, 0, 0.08);
+  --kimi-voyager-border-strong: #d1d5db;
+
+  --kimi-voyager-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+
+  --kimi-voyager-menu-bg: #fff;
+  --kimi-voyager-menu-hover: rgba(0, 0, 0, 0.04);
+
+  --kimi-voyager-scrollbar: rgba(0, 0, 0, 0.15);
+  --kimi-voyager-scrollbar-hover: rgba(0, 0, 0, 0.25);
+}
+
+/* ========== JS 显式设置暗色模式 ========== */
+:root[data-kv-theme="dark"] {
+  --kimi-voyager-bg: rgba(31, 41, 55, 0.95);
+  --kimi-voyager-bg-secondary: #374151;
+  --kimi-voyager-bg-tertiary: #4b5563;
+  --kimi-voyager-bg-hover: rgba(255, 255, 255, 0.08);
+  --kimi-voyager-bg-active: rgba(79, 70, 229, 0.2);
+
+  --kimi-voyager-text: #e5e7eb;
+  --kimi-voyager-text-secondary: #d1d5db;
+  --kimi-voyager-text-muted: #9ca3af;
+
+  --kimi-voyager-border: rgba(255, 255, 255, 0.1);
+  --kimi-voyager-border-strong: #4b5563;
+
+  --kimi-voyager-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+
+  --kimi-voyager-menu-bg: #374151;
+  --kimi-voyager-menu-hover: rgba(255, 255, 255, 0.1);
+
+  --kimi-voyager-scrollbar: rgba(255, 255, 255, 0.2);
+  --kimi-voyager-scrollbar-hover: rgba(255, 255, 255, 0.3);
+}
+
+/* 兼容旧变量名 */
+:root {
+  --kimi-voyager-bg-dark: var(--kimi-voyager-bg);
+  --kimi-voyager-text-light: var(--kimi-voyager-text);
 }
 
 /* 确保我们的元素在 Kimi 页面之上 */
@@ -29,8 +137,8 @@
   padding: 8px 16px;
   border-radius: 8px;
   border: 1px solid var(--kimi-voyager-border);
-  background: var(--kimi-voyager-bg-dark);
-  color: var(--kimi-voyager-text-light);
+  background: var(--kimi-voyager-bg);
+  color: var(--kimi-voyager-text);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -38,13 +146,14 @@
 }
 
 .kimi-voyager-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--kimi-voyager-bg-hover);
   border-color: var(--kimi-voyager-primary);
 }
 
 .kimi-voyager-btn-primary {
   background: var(--kimi-voyager-primary);
   border-color: var(--kimi-voyager-primary);
+  color: #fff;
 }
 
 .kimi-voyager-btn-primary:hover {
@@ -121,12 +230,12 @@
 }
 
 .kimi-voyager-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--kimi-voyager-scrollbar);
   border-radius: 3px;
 }
 
 .kimi-voyager-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--kimi-voyager-scrollbar-hover);
 }
 
 /* 面板展开动画 */
@@ -146,12 +255,12 @@
 
 .kimi-voyager-drag-over {
   border: 2px dashed var(--kimi-voyager-primary) !important;
-  background: rgba(79, 70, 229, 0.1) !important;
+  background: var(--kimi-voyager-bg-active) !important;
 }
 
 /* 选中/激活状态 */
 .kimi-voyager-active {
-  background: rgba(79, 70, 229, 0.2) !important;
+  background: var(--kimi-voyager-bg-active) !important;
   border-color: var(--kimi-voyager-primary) !important;
 }
 
@@ -192,8 +301,8 @@
 .kimi-voyager-tooltip {
   position: absolute;
   padding: 6px 12px;
-  background: #1f2937;
-  color: #e5e7eb;
+  background: var(--kimi-voyager-bg-secondary);
+  color: var(--kimi-voyager-text);
   font-size: 12px;
   border-radius: 6px;
   white-space: nowrap;
@@ -202,6 +311,7 @@
   opacity: 0;
   transform: translateY(5px);
   transition: all 0.2s ease;
+  box-shadow: var(--kimi-voyager-shadow);
 }
 
 .kimi-voyager-tooltip.visible {
@@ -217,7 +327,7 @@
   transform: translateX(-50%);
   border-left: 4px solid transparent;
   border-right: 4px solid transparent;
-  border-top: 4px solid #1f2937;
+  border-top: 4px solid var(--kimi-voyager-bg-secondary);
 }
 
 /* 响应式调整 */
@@ -227,12 +337,12 @@
     width: 50px;
     padding: 8px 4px;
   }
-  
+
   .kimi-voyager-prompt-panel {
     width: 100%;
     right: -100%;
   }
-  
+
   .kimi-voyager-prompt-panel.open {
     right: 0;
   }
